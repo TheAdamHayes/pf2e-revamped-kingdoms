@@ -309,6 +309,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     this.#editingDomain = null;
     this.#editingEvent = null;
     this.#editingBuilding = null;
+    this.#editingTransformation = null;
     this.#editingFaction = null;
     this.render();
   }
@@ -437,7 +438,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     await setDomains(this.#domains);
     KingdomConfigApp.#broadcastChange();
     this.render();
-    ui.notifications.info(`Saved "${name}" — live now.`);
+    ui.notifications.info(`Saved "${name}" — everyone can see it now.`);
     return true;
   }
 
@@ -570,7 +571,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     await setEvents(this.#events);
     KingdomConfigApp.#broadcastChange();
     this.render();
-    ui.notifications.info(`Saved "${title}" — live now.`);
+    ui.notifications.info(`Saved "${title}" — everyone can see it now.`);
     return true;
   }
 
@@ -965,7 +966,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     const imageChanged = previousImage !== null && previousImage !== tileImage;
     const hasPlacedCopies = imageChanged && getPlacedBuildings().some((p) => p.buildingId === id);
     ui.notifications.info(
-      `Saved "${name}" — live now.` +
+      `Saved "${name}" — everyone can see it now.` +
         (hasPlacedCopies
           ? ' This building\'s already been placed on the map — use "Recenter District Tiles" in the utility bar to update its existing image too (new copies will use the new art automatically either way).'
           : "")
@@ -1054,7 +1055,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     KingdomConfigApp.#broadcastChange();
     this.render();
 
-    ui.notifications.info(`Saved "${name}" — live now.`);
+    ui.notifications.info(`Saved "${name}" — everyone can see it now.`);
     return true;
   }
 
@@ -1135,7 +1136,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     await setFactions(this.#factions);
     KingdomConfigApp.#broadcastChange();
     this.render();
-    ui.notifications.info(`Saved "${name}" — live now.`);
+    ui.notifications.info(`Saved "${name}" — everyone can see it now.`);
     return true;
   }
 

@@ -1,4 +1,10 @@
-import { RevampedKingdomApp, refreshAllKingdomApps, openOrFocusKingdomApp } from "./kingdom.js";
+import {
+    RevampedKingdomApp,
+    refreshAllKingdomApps,
+    openOrFocusKingdomApp,
+    focusOrOpen,
+    applyResolveOp
+} from "./kingdom.js";
 import { KingdomConfigApp } from "./kingdom-config.js";
 import { ResearchTreeApp, refreshAllResearchApps } from "./research.js";
 import {
@@ -203,6 +209,45 @@ async function restoreBackup(snapshot) {
     ui.notifications.info("Kingdom data restored from backup.");
 }
 
+/* ------------------------------------------------------------------ */
+/* Gold "Kingdom" button at the top of the left-hand controls column   */
+/* ------------------------------------------------------------------ */
+
+/** Adds the button straight into the controls column rather than as a
+ *  Foundry control group: a group would switch the active canvas layer
+ *  every time someone clicked it, and this should only ever open the
+ *  window. Foundry rebuilds the column on every render, so this runs
+ *  after each one and quietly does nothing if the button's already there. */
+function injectKingdomLauncher() {
+    const v13Menu = document.querySelector("#scene-controls-layers");
+    const v12Menu = document.querySelector("#controls ol.main-controls");
+    const menu = v13Menu ?? v12Menu;
+    if (!menu || menu.querySelector(".pf2e-rk-kingdom-launch")) return;
+
+    const open = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openOrFocusKingdomApp();
+    };
+
+    const li = document.createElement("li");
+    if (v13Menu) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "control ui-control layer icon fa-solid fa-chess-rook pf2e-rk-kingdom-launch";
+        btn.dataset.tooltip = "Kingdom Management";
+        btn.setAttribute("aria-label", "Open Kingdom Management");
+        btn.addEventListener("click", open);
+        li.append(btn);
+    } else {
+        li.className = "scene-control pf2e-rk-kingdom-launch";
+        li.dataset.tooltip = "Kingdom Management";
+        li.innerHTML = '<i class="fas fa-chess-rook"></i>';
+        li.addEventListener("click", open);
+    }
+    menu.prepend(li);
+}
+
 Hooks.once("init", () => {
     console.log("PF2e Revamped Kingdoms | Initializing custom kingdom ruleset.");
 
@@ -224,15 +269,11 @@ Hooks.once("init", () => {
 
     // Expose to global scope for easy macro access
     game.modules.get(MODULE_ID).api = {
-        open: () => {
-            new RevampedKingdomApp().render(true);
-        },
-        openConfig: () => {
-            new KingdomConfigApp().render(true);
-        },
-        openResearchTree: () => {
-            new ResearchTreeApp().render(true);
-        },
+        // All three bring an already-open window forward instead of
+        // making a second copy of it.
+        open: () => openOrFocusKingdomApp(),
+        openConfig: () => focusOrOpen(KingdomConfigApp),
+        openResearchTree: () => focusOrOpen(ResearchTreeApp),
         claimHex,
         buildDistrict,
         destroyDistrict,
@@ -265,8 +306,17 @@ Hooks.once("ready", () => {
     // When the GM publishes edits from the Kingdom Configuration app, every
     // client's open Kingdom window(s) refresh automatically — no one needs
     // to reload the page for new domains/events to show up.
-    game.socket.on(`module.${MODULE_ID}`, (payload) => {
-        if (payload?.action === "refresh") {
+    game.socket.on(`module.${MODULE_ID}`, async (payload) => {
+        if (payload?.action === "resolveOp") {
+            // A player confirmed or reordered actions. Only one client —
+            // the active GM's — saves it, so it isn't applied twice.
+            if (game.user !== game.users.activeGM) return;
+            const changed = await applyResolveOp(payload.op);
+            if (changed) {
+                refreshAllKingdomApps();
+                game.socket.emit(`module.${MODULE_ID}`, { action: "refresh" });
+            }
+        } else if (payload?.action === "refresh") {
             refreshAllKingdomApps();
             refreshAllResearchApps();
         } else if (payload?.action === "pullToScreen") {
@@ -279,4 +329,7 @@ Hooks.once("ready", () => {
     });
 
     initHoverTooltips();
+
+    Hooks.on("renderSceneControls", () => injectKingdomLauncher());
+    injectKingdomLauncher();
 });

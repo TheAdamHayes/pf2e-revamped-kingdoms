@@ -14,6 +14,7 @@ import {
   getPlacedBuildings,
   getDomains,
   setDomains,
+  escapeHTML,
   BLANK_IMAGE,
   MODULE_ID
 } from "./data.js";
@@ -177,6 +178,7 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #activeBurstRafs = new Set();
   #viewRestored = false;
   #persistViewTimer = null;
+  #transformRaf = null;
 
   /** A node's actual rendered size: the Tree Configuration Node Size
    *  slider (this.#nodeSize, the "medium" baseline) times that specific
@@ -323,6 +325,8 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
     openResearchApps.delete(this);
     unregisterModuleWindow(this);
     if (this.#onKeyDown) document.removeEventListener("keydown", this.#onKeyDown);
+    if (this.#transformRaf) cancelAnimationFrame(this.#transformRaf);
+    this.#transformRaf = null;
     for (const rafId of this.#activeBurstRafs) cancelAnimationFrame(rafId);
     this.#activeBurstRafs.clear();
   }
@@ -433,7 +437,7 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
     try {
       await ChatMessage.create({
         speaker: { alias: "Kingdom" },
-        content: `<div class="pf2e-rk-effect-card"><h3>&#128161; Research Unlocked: ${node.name}</h3><p>${node.description ?? ""}</p>${
+        content: `<div class="pf2e-rk-effect-card"><h3>&#128161; Research Unlocked: ${escapeHTML(node.name)}</h3><p>${node.description ?? ""}</p>${
           grantedBuilding
             ? `<p><strong>Unlocked building:</strong> ${grantedBuilding.name} — it can now be built in Build a District.</p>`
             : grantedTransformation
@@ -491,6 +495,17 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
   /* ---------------------------------------------------------------- */
   /* Pan and Zoom                                                     */
   /* ---------------------------------------------------------------- */
+
+  /** Pointer and wheel events can arrive several times per frame; moving
+   *  the canvas once per frame looks identical and does a fraction of the
+   *  work, which is most of what made panning a big tree feel heavy. */
+  #scheduleTransform() {
+    if (this.#transformRaf) return;
+    this.#transformRaf = requestAnimationFrame(() => {
+      this.#transformRaf = null;
+      if (this.element?.isConnected) this.#applyTransform();
+    });
+  }
 
   #applyTransform() {
     const inner = this.element.querySelector(".research-canvas__inner");
@@ -567,7 +582,7 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#panX = px - localX * clamped;
     this.#panY = py - localY * clamped;
     this.#zoomLevel = clamped;
-    this.#applyTransform();
+    this.#scheduleTransform();
     this.#schedulePersistView();
   }
 
@@ -592,7 +607,7 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (!this.#panState) return;
       this.#panX = this.#panState.startPanX + (event.clientX - this.#panState.startX);
       this.#panY = this.#panState.startPanY + (event.clientY - this.#panState.startY);
-      this.#applyTransform();
+      this.#scheduleTransform();
     });
 
     const endPan = () => {
@@ -608,7 +623,7 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
       event.preventDefault();
       if (event.shiftKey) {
         this.#panX -= event.deltaY;
-        this.#applyTransform();
+        this.#scheduleTransform();
         this.#schedulePersistView();
         return;
       }
@@ -630,6 +645,17 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     for (const el of canvasEl.querySelectorAll(".research-node")) {
       const nodeId = el.dataset.nodeId;
+      let pendingPos = null;
+      let dragRaf = null;
+      const flushDrag = () => {
+        dragRaf = null;
+        if (!pendingPos) return;
+        const { x, y } = pendingPos;
+        pendingPos = null;
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        this.#redrawConnectionsFor(nodeId, x, y, parseFloat(el.style.width) || this.#nodeSize);
+      };
 
       // Just-in-time will-change (see the CSS comment on
       // .research-node--will-scale for why this is toggled per-node via
@@ -665,15 +691,14 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const canvasRect = this.#dragCanvasRect ?? canvasEl.getBoundingClientRect();
         const localX = (event.clientX - canvasRect.left - this.#panX) / this.#zoomLevel - this.#dragOffset.x;
         const localY = (event.clientY - canvasRect.top - this.#panY) / this.#zoomLevel - this.#dragOffset.y;
-        const x = Math.max(0, localX);
-        const y = Math.max(0, localY);
-        el.style.left = `${x}px`;
-        el.style.top = `${y}px`;
-        this.#redrawConnectionsFor(nodeId, x, y, parseFloat(el.style.width) || this.#nodeSize);
+        pendingPos = { x: Math.max(0, localX), y: Math.max(0, localY) };
+        if (!dragRaf) dragRaf = requestAnimationFrame(flushDrag);
       });
 
       const endDrag = async (event) => {
         if (this.#dragNodeId !== nodeId) return;
+        if (dragRaf) cancelAnimationFrame(dragRaf);
+        flushDrag(); // land exactly where the pointer let go
         this.#dragNodeId = null;
         this.#dragCanvasRect = null;
         const x = Math.round(parseFloat(el.style.left) || 0);
@@ -976,14 +1001,6 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
    *  unlock, or resetting a node while testing a tree. Refunds the
    *  points it cost, matching how unlocking spent them in the first
    *  place; the confirm dialog says so up front rather than silently
-   *  deciding one way. Doesn't touch anything ELSE the unlock already
-   *  did (a granted building/transformation stays defined, any chat
-   *  message stays posted) — this only flips this one node's own state
-   *  back, the same partial-undo scope Delete already has. */
-  /** Reverts an unlocked node back to locked — for undoing a mistaken
-   *  unlock, or resetting a node while testing a tree. Refunds the
-   *  points it cost, matching how unlocking spent them in the first
-   *  place; the confirm dialog says so up front rather than silently
    *  deciding one way.
    *
    *  Anything the node GRANTS access to also reverts automatically —
@@ -1081,7 +1098,7 @@ export class ResearchTreeApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!game.user.isGM || !this.#editingNode) return;
 
     const factionOptions = getFactions()
-      .map((f) => `<option value="${f.id}">${f.name}</option>`)
+      .map((f) => `<option value="${escapeHTML(f.id)}">${escapeHTML(f.name)}</option>`)
       .join("");
 
     // The dialog needs a live "Browse" button wired to FilePicker, which

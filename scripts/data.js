@@ -7,6 +7,33 @@ export const MODULE_ID = "pf2e-revamped-kingdoms";
    you've got (or drawn) the real art. */
 export const BLANK_IMAGE = "icons/svg/mystery-man.svg";
 
+/** Escapes text for safe use inside HTML built from strings (names in
+ *  dialogs, tooltips, chat cards). Effect/description fields are meant to
+ *  hold HTML and are NOT passed through this. */
+export function escapeHTML(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** A CSS url() value that survives quotes, brackets and spaces in a path
+ *  (building art like "Buildings - Tower (red).png"). */
+export function cssUrl(path) {
+  if (!path) return "none";
+  return `url("${String(path).replace(/\\/g, "/").replace(/"/g, "%22")}")`;
+}
+
+/** Whether this user can write world settings. Players normally can't —
+ *  Foundry only lets Assistant GMs and above do that — so anything a
+ *  player triggers has to go through the GM instead (see the socket
+ *  handler in main.js). */
+export function canWriteWorld() {
+  return game.user?.isGM || !!game.user?.can?.("SETTINGS_MODIFY");
+}
+
 /* Seed data — this is exactly the content that used to be hardcoded in
    kingdom.hbs. It only ever loads once, the first time the world settings
    are read (Foundry persists whatever the GM edits afterward). */
@@ -928,6 +955,15 @@ export function registerSettings() {
     config: false,
     type: Object,
     default: null
+  });
+
+  // Per-person memory of the map tooltip on/off toggle, so it doesn't
+  // switch itself back on every time someone reloads.
+  game.settings.register(MODULE_ID, "tooltipsEnabled", {
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: true
   });
 }
 

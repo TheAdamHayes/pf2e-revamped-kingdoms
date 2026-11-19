@@ -282,6 +282,7 @@
           <div class="resolve-wizard__reminder">&#128161; {{resolveCurrentEntry.reminderMessage}}</div>
         {{/if}}
 
+        {{#if isGM}}
         {{#if resolveCurrentEntry.isClaimHexEntry}}
           <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="claimHex">Claim a Hex on the Map</button>
         {{/if}}
@@ -305,6 +306,7 @@
         {{/if}}
         {{#if resolveCurrentEntry.isLevelUpStore}}
           <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerLevelUpStore">Level Up a Store</button>
+        {{/if}}
         {{/if}}
 
         {{#if isGM}}
@@ -441,7 +443,7 @@
   <!-- EVENT -->
   <section class="page-view event-view" data-view-panel="event" aria-label="Event" {{#unless showEvent}}hidden{{/unless}}>
     {{#if currentEvent}}
-      <div class="event-scene" style="background:
+      <div class="event-scene {{#if eventSettled}}event-scene--settled{{/if}}" style="background:
           radial-gradient(90% 120% at 18% 50%, color-mix(in srgb, {{currentEvent.displayTint}} 55%, transparent), transparent 62%),
           linear-gradient(180deg, {{currentEvent.displayTint}} 0%, color-mix(in srgb, {{currentEvent.displayTint}} 70%, black) 100%);">
         <div class="event-art" aria-hidden="true" {{#if currentEvent.displayArt}}style="background-image:url('{{currentEvent.displayArt}}');"{{/if}}></div>

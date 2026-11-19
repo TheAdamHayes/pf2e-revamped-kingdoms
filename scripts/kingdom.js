@@ -26,6 +26,9 @@ import {
   getQuestlineProgress,
   setQuestlineProgress,
   isDomainResearchUnlocked,
+  escapeHTML,
+  cssUrl,
+  canWriteWorld,
   TAX_LEVELS,
   EVENT_CONDITIONS,
   EVENT_TYPES,
@@ -50,7 +53,43 @@ export function unregisterModuleWindow(app) {
   openWindows.delete(app);
 }
 
+/* Many actions change two or three settings in a row and each one asks
+   for a refresh; on remote clients several socket "refresh" messages can
+   land together too. Re-rendering the whole window for every one of
+   those was most of the "it stutters after I click" feel. Requests made
+   in the same moment now collapse into a single render on the next
+   frame. */
+let kingdomRefreshQueued = false;
+
 export function refreshAllKingdomApps() {
+  if (kingdomRefreshQueued) return;
+  kingdomRefreshQueued = true;
+  const run = () => {
+    kingdomRefreshQueued = false;
+    renderKingdomWindowsNow();
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+  else setTimeout(run, 0);
+}
+
+/** Opens a module window, or brings the existing one forward if it's
+ *  already open. These windows use fixed ids, so a second copy would
+ *  fight the first for the same id. */
+export function focusOrOpen(AppClass, options = {}) {
+  const id = AppClass.DEFAULT_OPTIONS?.id;
+  const existing = id ? foundry.applications.instances?.get(id) : null;
+  if (existing?.rendered) {
+    existing.maximize?.();
+    if (typeof existing.bringToFront === "function") existing.bringToFront();
+    else existing.bringToTop?.();
+    return existing;
+  }
+  const app = new AppClass(options);
+  app.render(true);
+  return app;
+}
+
+function renderKingdomWindowsNow() {
   // Used to be scoped to RevampedKingdomApp only, to avoid wiping
   // whatever the GM was mid-way through editing in Kingdom Config — that
   // was true back when Config held every edit as an in-memory draft
@@ -78,8 +117,13 @@ export function refreshAllKingdomApps() {
  *  pull. Each client has its own separate openWindows Set (this isn't
  *  shared state), so this only ever finds/creates a window on the
  *  client it's running on, which is exactly what's wanted here. */
+/** The Kingdom window currently being opened or shown, so a quick double
+ *  click on the launcher can't open two of them before the first has
+ *  finished drawing. Cleared when the window closes. */
+let kingdomAppInstance = null;
+
 export function openOrFocusKingdomApp(tab) {
-  let app = [...openWindows].find((w) => w instanceof RevampedKingdomApp);
+  let app = [...openWindows].find((w) => w instanceof RevampedKingdomApp) ?? kingdomAppInstance;
   if (app) {
     app.maximize?.();
     // Foundry has used both bringToFront (ApplicationV2) and bringToTop
@@ -92,6 +136,7 @@ export function openOrFocusKingdomApp(tab) {
     app.render(); // harmless if the above already did it; cheap safety net either way
   } else {
     app = new RevampedKingdomApp(tab ? { startTab: tab } : {});
+    kingdomAppInstance = app;
     app.render(true);
   }
 }
@@ -183,25 +228,12 @@ function refreshEntryInteractionData(entry) {
   let live = domain?.abilities?.find((a) => norm(a.title) === norm(entry.action));
   if (!live) live = getUniversalActions().find((a) => norm(a.title) === norm(entry.action));
 
-  // Permanent (not debug-only) diagnostic — the last two "why doesn't
-  // this contextual button show up" reports both turned out to need
-  // actual data to solve rather than more guessing. If this fires and
-  // shows liveFound:false, the domain/action string on the saved entry
-  // doesn't match anything in the CURRENT domains/universal-actions
-  // data — likely because the action was decided before a Reset
-  // Domains/edit, or the ability was renamed since. If it shows
-  // liveFound:true but the wizard still doesn't show a button, the bug
-  // is downstream of this function, not in the lookup itself.
-  console.log("PF2e Revamped Kingdoms | Resolve entry interactionType lookup", {
-    storedDomain: entry.domain,
-    storedAction: entry.action,
-    storedInteractionType: entry.interactionType,
-    domainFound: !!domain,
-    liveFound: !!live,
-    liveInteractionType: live?.interactionType ?? null
-  });
-
-  if (!live) return entry;
+  // This ran on every render and logged every time; now it only speaks
+  // up when the lookup genuinely fails, which is the case worth knowing.
+  if (!live) {
+    console.debug("PF2e Revamped Kingdoms | No live ability found for resolve entry", entry.domain, entry.action);
+    return entry;
+  }
 
   return {
     ...entry,
@@ -272,6 +304,80 @@ function buildEventDisplayModel(event, activeEventPage, questlineProgress) {
     isSingle: true,
     showOutcomes: (event.outcomes?.length ?? 0) > 0
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Resolve timeline changes that players can make                      */
+/* ------------------------------------------------------------------ */
+
+/** Builds a timeline entry from the live domain/ability data, so the
+ *  description and buttons always come from the GM's own definitions —
+ *  never from whatever a client happened to send. Same shape entries
+ *  have always had. */
+export function buildResolveEntry(domainId, title, cost) {
+  const domain = getDomains().find((d) => d.id === domainId);
+  if (!domain) return null;
+  if (domain.researchLocked && !isDomainResearchUnlocked(domain.id)) return null;
+  const ability =
+    (domain.abilities ?? []).find((a) => a.title === title) ?? getUniversalActions().find((a) => a.title === title);
+  if (!ability) return null;
+  const costs = ability.costs?.length ? ability.costs : [1];
+  const chosenCost = costs.includes(cost) ? cost : costs[0];
+  return {
+    id: foundry.utils.randomID(),
+    domain: domain.name,
+    art: domain.portrait,
+    action: ability.title,
+    description: ability.description ?? "",
+    cost: chosenCost,
+    kwEffect: ability.kwEffect ?? 0,
+    happinessFactionId: ability.happinessFactionId ?? null,
+    happinessEffect: ability.happinessEffect ?? 0,
+    interactionType: ability.interactionType ?? "generic",
+    playerEffect: ability.playerEffect ?? null,
+    reminderMessage: ability.reminderMessage ?? null,
+    resolved: false
+  };
+}
+
+/** Applies one change to the shared timeline against the freshest saved
+ *  copy. Working from the fresh copy (rather than a whole timeline sent
+ *  by a client) means two players confirming at the same moment both
+ *  land, instead of the second quietly overwriting the first. */
+export async function applyResolveOp(op) {
+  const state = getResolveState();
+  if (op?.type === "append") {
+    const entries = (op.picks ?? [])
+      .slice(0, 12)
+      .map((p) => buildResolveEntry(op.domainId, p.title, Number(p.cost)))
+      .filter(Boolean);
+    if (!entries.length) return false;
+    state.entries.push(...entries);
+  } else if (op?.type === "reorder") {
+    if (state.locked) return false;
+    const fromIdx = state.entries.findIndex((e) => e.id === op.draggedId);
+    const toIdx = state.entries.findIndex((e) => e.id === op.targetId);
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return false;
+    const [moved] = state.entries.splice(fromIdx, 1);
+    state.entries.splice(toIdx, 0, moved);
+  } else {
+    return false;
+  }
+  await setResolveState(state);
+  return true;
+}
+
+/** Players can't write world settings, so their timeline changes are
+ *  handed to the GM's client to save (see main.js). The GM, or an
+ *  Assistant GM, just applies them directly. */
+export async function requestResolveOp(op) {
+  if (canWriteWorld()) return applyResolveOp(op);
+  if (!game.users?.activeGM) {
+    ui.notifications.warn("The GM needs to be connected to record that.");
+    return false;
+  }
+  game.socket.emit(`module.${MODULE_ID}`, { action: "resolveOp", op });
+  return true;
 }
 
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
@@ -391,6 +497,10 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
   /** The resolve timeline entry id currently mid-drag, or null. */
   #draggedEntryId = null;
 
+  /** Which event/page/stage was showing last render, so the entrance
+   *  animation only plays when it actually changes. */
+  #lastEventKey = null;
+
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
 
@@ -411,10 +521,11 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const buildingDefs = getBuildings();
     const placedBuildings = getPlacedBuildings();
 
+    const defsById = new Map(buildingDefs.map((b) => [b.id, b]));
     const completedByBuildingId = new Map();
     for (const p of placedBuildings) {
       if ((p.turnsRemaining ?? 0) > 0) continue;
-      const def = buildingDefs.find((b) => b.id === p.buildingId);
+      const def = defsById.get(p.buildingId);
       if (!def || !def.kwPerTurn) continue;
       const entry = completedByBuildingId.get(def.id) ?? { name: def.name, count: 0, total: 0 };
       entry.count += 1;
@@ -451,10 +562,11 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const presentFactions = factions.filter((f) => f.present);
     const absentFactions = factions.filter((f) => !f.present);
 
+    const presentIds = new Set(presentFactions.map((f) => f.id));
     const buildingsBrowser = buildingDefs.map((b) => ({
       ...b,
       traitsJoined: (b.traits ?? []).join(", "),
-      available: !b.requiresFactionId || factions.find((f) => f.id === b.requiresFactionId)?.present === true
+      available: !b.requiresFactionId || presentIds.has(b.requiresFactionId)
     }));
 
     context.isGM = game.user.isGM;
@@ -473,6 +585,11 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       ? buildEventDisplayModel(normalizedActiveEvent, getActiveEventPage(), getQuestlineProgress())
       : null;
     context.showEventPicker = !context.currentEvent;
+
+    const ce = context.currentEvent;
+    const eventKey = ce ? `${ce.id}|${ce.pageIndex ?? ""}|${ce.stageIndex ?? ""}` : null;
+    context.eventSettled = !!eventKey && eventKey === this.#lastEventKey;
+    this.#lastEventKey = eventKey;
 
     const questlineProgress = getQuestlineProgress();
     const normalizedEvents = events.map((e) => ({
@@ -602,6 +719,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
   _onClose(options) {
     super._onClose(options);
     unregisterModuleWindow(this);
+    if (kingdomAppInstance === this) kingdomAppInstance = null;
   }
 
   /* ---------------------------------------------------------------- */
@@ -776,7 +894,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
 
     const root = this.element;
     const thumb = root.querySelector("#building-detail-thumb");
-    if (thumb) thumb.style.backgroundImage = building.tileImage ? `url('${building.tileImage}')` : "";
+    if (thumb) thumb.style.backgroundImage = building.tileImage ? cssUrl(building.tileImage) : "";
     root.querySelector("#building-detail-name").textContent = building.name ?? "";
     root.querySelector("#building-detail-meta").textContent =
       `${building.category ?? ""} · ${building.cost ?? 0} KW · ${building.buildTime ?? 0} turn(s)`;
@@ -891,7 +1009,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const root = this.element;
     root.querySelector("#select-title").textContent = domain.name;
     const portraitEl = root.querySelector("#select-portrait");
-    portraitEl.style.backgroundImage = domain.portrait ? `url('${domain.portrait}')` : "";
+    portraitEl.style.backgroundImage = domain.portrait ? cssUrl(domain.portrait) : "";
 
     const pool = root.querySelector("#select-pool");
     pool.innerHTML = "";
@@ -1193,41 +1311,30 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
   }
 
   static async #onConfirmActions() {
+    const domainId = this.#currentDomain?.id;
+    if (!domainId) return;
     const seen = new Set();
-    const newEntries = [];
+    const picks = [];
     for (const rec of this.#placements) {
       if (rec && !seen.has(rec)) {
         seen.add(rec);
-        newEntries.push({
-          id: foundry.utils.randomID(),
-          domain: this.#currentDomain.name,
-          art: this.#currentDomain.portrait,
-          action: rec.title,
-          description: rec.description,
-          cost: rec.cost,
-          kwEffect: rec.kwEffect,
-          happinessFactionId: rec.happinessFactionId,
-          happinessEffect: rec.happinessEffect,
-          interactionType: rec.interactionType ?? "generic",
-          playerEffect: rec.playerEffect ?? null,
-          reminderMessage: rec.reminderMessage ?? null,
-          resolved: false
-        });
+        picks.push({ title: rec.title, cost: rec.cost });
       }
     }
 
-    if (newEntries.length) {
-      const state = getResolveState();
-      state.entries.push(...newEntries);
-      await setResolveState(state);
+    if (picks.length) {
+      const sent = await requestResolveOp({ type: "append", domainId, picks });
+      if (!sent) return;
     }
 
     this.#currentDomain = null;
     this.#placements = makeEmptyPlacements();
     this.#activeTab = "resolve";
 
-    refreshAllKingdomApps(); // full render acceptable here — confirm is infrequent
-    broadcastRefresh();
+    refreshAllKingdomApps();
+    // A player's change is saved (and announced) by the GM's client once
+    // it arrives; only announce here when this client saved it itself.
+    if (canWriteWorld()) broadcastRefresh();
   }
 
   /* ---------------------------------------------------------------- */
@@ -1266,9 +1373,8 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const toIdx = state.entries.findIndex((e) => e.id === targetId);
     if (fromIdx === -1 || toIdx === -1) return;
 
-    const [moved] = state.entries.splice(fromIdx, 1);
-    state.entries.splice(toIdx, 0, moved);
-    await setResolveState(state);
+    const sent = await requestResolveOp({ type: "reorder", draggedId, targetId });
+    if (!sent) return;
 
     // Reorder the EXISTING elements in place instead of a full re-render.
     // A full render here was the cause of the "stutters, then jumps" feel
@@ -1279,9 +1385,9 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       const draggedEl = track.querySelector(`[data-entry-id="${draggedId}"]`);
       const targetEl = track.querySelector(`[data-entry-id="${targetId}"]`);
       if (draggedEl && targetEl) {
-        const newDraggedIdx = state.entries.findIndex((e) => e.id === draggedId);
-        const newTargetIdx = state.entries.findIndex((e) => e.id === targetId);
-        if (newDraggedIdx < newTargetIdx) targetEl.after(draggedEl);
+        // Same rule the saved order follows: moving right lands after
+        // the target, moving left lands before it.
+        if (fromIdx < toIdx) targetEl.after(draggedEl);
         else targetEl.before(draggedEl);
       }
       // Re-stripe the up/down zigzag to match the new physical order.
@@ -1293,8 +1399,9 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     // Only OTHER clients need a real render; the one doing the dragging
-    // already has the correct DOM from the reorder above.
-    broadcastRefresh();
+    // already has the correct DOM from the reorder above. (A player's
+    // drag is announced by the GM's client once it's saved.)
+    if (canWriteWorld()) broadcastRefresh();
   }
 
   static async #onToggleLock() {
@@ -1712,30 +1819,55 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
   }
 
   async #postPlayerEffectToChat(name, description, duration) {
+    const safeName = escapeHTML(name);
     try {
-      const itemData = {
-        name,
-        type: "effect",
-        img: "icons/svg/aura.svg",
-        system: {
-          description: { value: description ?? "" },
-          duration: duration ?? { value: 1, unit: "encounter" },
-          tokenIcon: { show: true }
-        }
-      };
-      const item = await Item.create(itemData);
-      const link = item ? `@UUID[Item.${item.id}]{${name}}` : `<strong>${name}</strong>`;
+      const item = await this.#getOrCreateEffectItem(name, description, duration);
+      const link = item ? `@UUID[${item.uuid}]{${safeName}}` : `<strong>${safeName}</strong>`;
       await ChatMessage.create({
         speaker: { alias: "Kingdom" },
-        content: `<div class="pf2e-rk-effect-card"><h3>${name}</h3>${description ?? ""}<p><em>Drag onto a token to apply:</em> ${link}</p></div>`
+        content: `<div class="pf2e-rk-effect-card"><h3>${safeName}</h3>${description ?? ""}<p><em>Drag onto a token to apply:</em> ${link}</p></div>`
       });
     } catch (err) {
       console.error("PF2e Revamped Kingdoms | Couldn't create a draggable effect item — posting as plain text instead", err);
       await ChatMessage.create({
         speaker: { alias: "Kingdom" },
-        content: `<div class="pf2e-rk-effect-card"><h3>${name}</h3>${description ?? ""}<p><em>(Couldn't create a draggable item automatically on this system/version — apply this manually.)</em></p></div>`
+        content: `<div class="pf2e-rk-effect-card"><h3>${safeName}</h3>${description ?? ""}<p><em>(Couldn't make a draggable effect this time — apply it by hand.)</em></p></div>`
       });
     }
+  }
+
+  /** Effects posted to chat used to create a brand-new item every time,
+   *  which slowly filled the Items sidebar with copies of "Ward" and
+   *  "Advance". Now each named effect lives once, in a "Kingdom Effects"
+   *  folder, and is refreshed and reused. */
+  async #getOrCreateEffectItem(name, description, duration) {
+    const system = {
+      description: { value: description ?? "" },
+      duration: duration ?? { value: 1, unit: "encounter" },
+      tokenIcon: { show: true }
+    };
+    const existing = game.items.find((i) => i.getFlag?.(MODULE_ID, "kingdomEffect") && i.name === name);
+    if (existing) {
+      await existing.update({ system });
+      return existing;
+    }
+    let folder = game.folders.find((f) => f.type === "Item" && f.getFlag?.(MODULE_ID, "effectsFolder"));
+    if (!folder) {
+      folder = await Folder.create({
+        name: "Kingdom Effects",
+        type: "Item",
+        color: "#9c7c38",
+        flags: { [MODULE_ID]: { effectsFolder: true } }
+      });
+    }
+    return Item.create({
+      name,
+      type: "effect",
+      img: "icons/svg/aura.svg",
+      folder: folder?.id ?? null,
+      system,
+      flags: { [MODULE_ID]: { kingdomEffect: true } }
+    });
   }
 
   #currentResolveEntry() {
@@ -1760,6 +1892,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
 
   static async #onFinishTurn() {
     if (!game.user.isGM) return;
+    if (!(await RevampedKingdomApp.#confirmFinishTurn())) return;
     const kingdomState = getKingdomState();
     const buildingDefs = getBuildings();
     const placed = getPlacedBuildings();
@@ -1827,6 +1960,43 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     broadcastRefresh();
   }
 
+  /** One look at what Finish Turn is about to do before it does it — it
+   *  clears the timeline and the event and moves every timer on, so a
+   *  stray click used to cost a whole turn's bookkeeping. */
+  static async #confirmFinishTurn() {
+    const kingdomState = getKingdomState();
+    const defsById = new Map(getBuildings().map((b) => [b.id, b]));
+    const placed = getPlacedBuildings();
+    let income = kingdomState.kwDelta ?? 0;
+    const finishing = [];
+    for (const p of placed) {
+      const def = defsById.get(p.buildingId);
+      if ((p.turnsRemaining ?? 0) <= 0) income += def?.kwPerTurn ?? 0;
+      const capacity = def?.storageCapacity ?? 0;
+      if (capacity > 0 && (p.storedKw ?? 0) >= capacity) income += def.storageBonusKw ?? 0;
+      if ((p.turnsRemaining ?? 0) === 1) finishing.push(def?.name ?? "A district");
+    }
+    const unresolved = getResolveState().entries.filter((e) => !e.resolved).length;
+    const sign = income >= 0 ? "+" : "";
+
+    const lines = [
+      `<p>The kingdom gains <strong>${sign}${income} KW</strong> (${kingdomState.kw} &rarr; ${kingdomState.kw + income}).</p>`
+    ];
+    if (finishing.length) lines.push(`<p>Finishing this turn: ${finishing.map(escapeHTML).join(", ")}.</p>`);
+    if (unresolved) {
+      lines.push(
+        `<p><em>${unresolved} action${unresolved === 1 ? " is" : "s are"} still unticked on the timeline.</em></p>`
+      );
+    }
+    lines.push("<p>The timeline and this turn's event will be cleared.</p>");
+
+    return foundry.applications.api.DialogV2.confirm({
+      window: { title: "Finish the kingdom turn?" },
+      classes: ["pf2e-rk-dialog"],
+      content: lines.join("")
+    }).catch(() => false);
+  }
+
   #wireWizardInputs() {
     const select = this.element.querySelector("#wizard-faction-select");
     if (select && select.dataset.selected) select.value = select.dataset.selected;
@@ -1837,7 +2007,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
   /* ---------------------------------------------------------------- */
 
   static #onOpenConfig() {
-    new KingdomConfigApp().render(true);
+    focusOrOpen(KingdomConfigApp);
   }
 
   static #onPullToScreen() {

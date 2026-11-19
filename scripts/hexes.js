@@ -34,6 +34,8 @@ import {
   isTransformationResearchUnlocked,
   getBonusActionSlots,
   setBonusActionSlots,
+  escapeHTML,
+  cssUrl,
   MODULE_ID
 } from "./data.js";
 import { refreshAllKingdomApps, minimizeAllModuleWindows, restoreAllModuleWindows } from "./kingdom.js";
@@ -48,8 +50,19 @@ function hexKey(offset) {
 
 function requireGM(actionLabel) {
   if (game.user.isGM) return true;
-  ui.notifications.warn(`Only the GM can ${actionLabel}.`);
+  ui.notifications.warn(`Only the GM can ${actionLabel} — ask them to do this one.`);
   return false;
+}
+
+/** Claims and districts remember which scene they were made on. A record
+ *  counts as "here" if it's from this scene, has no scene, or points at a
+ *  scene that no longer exists (an older, re-imported copy of the map) —
+ *  so nothing already built quietly disappears. */
+function onThisScene(record) {
+  const here = canvas?.scene?.id;
+  if (!here || !record?.sceneId) return true;
+  if (record.sceneId === here) return true;
+  return !game.scenes?.has?.(record.sceneId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -164,11 +177,11 @@ function pickBuilding(buildings) {
   const cardHtml = cards
     .map(
       ({ building: b, unavailable, badgeText }, i) => `
-      <div class="pf2e-rk-bcard${unavailable ? " pf2e-rk-bcard--unavailable" : ""}${i === 0 ? " is-selected" : ""}" data-building-id="${b.id}">
-        ${b.tileImage ? `<div class="pf2e-rk-bcard__thumb" style="background-image:url('${b.tileImage}')"></div>` : `<div class="pf2e-rk-bcard__thumb"></div>`}
-        <div class="pf2e-rk-bcard__name">${b.name}</div>
+      <div class="pf2e-rk-bcard${unavailable ? " pf2e-rk-bcard--unavailable" : ""}${i === 0 ? " is-selected" : ""}" data-building-id="${escapeHTML(b.id)}">
+        ${b.tileImage ? `<div class="pf2e-rk-bcard__thumb" style="background-image:${escapeHTML(cssUrl(b.tileImage))}"></div>` : `<div class="pf2e-rk-bcard__thumb"></div>`}
+        <div class="pf2e-rk-bcard__name">${escapeHTML(b.name)}</div>
         <div class="pf2e-rk-bcard__meta">${b.cost} KW &middot; ${b.buildTime} turn(s)</div>
-        ${badgeText ? `<div class="pf2e-rk-bcard__badge">${badgeText}</div>` : ""}
+        ${badgeText ? `<div class="pf2e-rk-bcard__badge">${escapeHTML(badgeText)}</div>` : ""}
       </div>`
     )
     .join("");
@@ -201,9 +214,10 @@ function pickBuilding(buildings) {
 
   return foundry.applications.api.DialogV2.prompt({
     window: { title: "Build a District" },
+    classes: ["pf2e-rk-dialog"],
     content: `
       <div class="pf2e-rk-bpicker">
-        <input type="hidden" name="buildingId" value="${buildings[0]?.id ?? ""}">
+        <input type="hidden" name="buildingId" value="${escapeHTML(buildings[0]?.id ?? "")}">
         <label class="pf2e-rk-bpicker__toggle">
           <input type="checkbox" class="pf2e-rk-bpicker__toggle-input">
           Hide unavailable buildings
@@ -283,7 +297,9 @@ async function getBackgroundImageData() {
         const off = document.createElement("canvas");
         off.width = img.naturalWidth;
         off.height = img.naturalHeight;
-        const ctx = off.getContext("2d");
+        // willReadFrequently keeps the image in ordinary memory, which
+        // makes the many one-pixel reads below far cheaper.
+        const ctx = off.getContext("2d", { willReadFrequently: true });
         ctx.drawImage(img, 0, 0);
         // Touch getImageData once here so a CORS taint throws now, during
         // setup, rather than repeatedly during per-point sampling.
@@ -300,37 +316,42 @@ async function getBackgroundImageData() {
   });
 }
 
-/** Tries PIXI's render-extraction first (works entirely in-engine, no
- *  extra image load), falling back to sampling the raw scene background
- *  image directly. Both can be blocked by the same underlying browser
- *  cross-origin restriction if the scene image lacks CORS headers — if
- *  so, this fails open (never blocks placement) rather than breaking
- *  the feature. */
+function looksLikeWater(r, g, b) {
+  return b > r + 20 && b > g + 10 && b > 70;
+}
+
+/** Reads the scene's own background image first. Once it's decoded that's
+ *  a cheap one-pixel lookup — the old order rendered the entire canvas for
+ *  every sample point (up to ~40 per build), and also "saw" tokens,
+ *  drawings and this module's own gold overlays rather than the map.
+ *  The background sits inside the scene's padding, so canvas coordinates
+ *  are mapped through the scene rectangle; without that, sampling landed
+ *  well away from the hex being checked on any padded scene. Fails open
+ *  (never blocks placement) if the image can't be read. */
 async function isWaterAt(x, y) {
   try {
-    const pixels = canvas.app.renderer.extract.pixels(canvas.stage, new PIXI.Rectangle(x, y, 1, 1));
-    const [r, g, b, a] = pixels;
-    if (a >= 10) return b > r + 20 && b > g + 10 && b > 70;
+    const bg = await getBackgroundImageData();
+    if (bg) {
+      const rect = canvas.dimensions?.sceneRect ?? { x: 0, y: 0, width: canvas.scene.width ?? bg.width, height: canvas.scene.height ?? bg.height };
+      const px = Math.floor(((x - rect.x) / rect.width) * bg.width);
+      const py = Math.floor(((y - rect.y) / rect.height) * bg.height);
+      if (px < 0 || py < 0 || px >= bg.width || py >= bg.height) return false;
+      const [r, g, b, a] = bg.ctx.getImageData(px, py, 1, 1).data;
+      if (a < 10) return false;
+      return looksLikeWater(r, g, b);
+    }
   } catch (err) {
-    warnWaterDetectionOnce("renderer.extract.pixels threw", err);
+    warnWaterDetectionOnce("background image sampling threw", err);
   }
 
   try {
-    const bg = await getBackgroundImageData();
-    if (!bg) return false;
-    const scene = canvas.scene;
-    const sceneWidth = scene.width ?? bg.width;
-    const sceneHeight = scene.height ?? bg.height;
-    const px = Math.round((x / sceneWidth) * bg.width);
-    const py = Math.round((y / sceneHeight) * bg.height);
-    if (px < 0 || py < 0 || px >= bg.width || py >= bg.height) return false;
-    const [r, g, b, a] = bg.ctx.getImageData(px, py, 1, 1).data;
-    if (a < 10) return false;
-    return b > r + 20 && b > g + 10 && b > 70;
+    const pixels = canvas.app.renderer.extract.pixels(canvas.stage, new PIXI.Rectangle(x, y, 1, 1));
+    const [r, g, b, a] = pixels;
+    if (a >= 10) return looksLikeWater(r, g, b);
   } catch (err) {
-    warnWaterDetectionOnce("background image sampling threw", err);
-    return false;
+    warnWaterDetectionOnce("renderer.extract.pixels threw", err);
   }
+  return false;
 }
 
 async function isHexMostlyWater(offset) {
@@ -433,74 +454,79 @@ async function refreshReconMarkers() {
 }
 
 
-async function refreshAllHexOverlays() {
-  if (!canvas?.scene) return;
+/* Hex overlays are now updated by difference instead of wipe-and-redraw.
+   Every overlay drawing carries a key ("fill:i,j" or "edge:i,j:n") and a
+   small signature of its geometry. Claiming one hex used to delete and
+   recreate every fill and border on the map — a couple of hundred
+   documents on a grown kingdom, sent to every connected player. Now only
+   the new hex's pieces and the few borders it absorbs change. Drawings
+   from older versions have no key, so they're replaced once, the first
+   time anything is claimed or unclaimed after updating. */
+const OVERLAY_VERSION = 2;
 
-  // This was the actual bug behind "unclaiming doesn't remove the
-  // border": clearAllHexOverlayDrawings() existed (see its own comment
-  // above) but was never actually called from here — only from the
-  // separate manual clearHexOverlays() GM macro. Every claim/unclaim
-  // was just drawing new overlays on top without first removing the
-  // old ones, which both left a stale border behind whenever a hex was
-  // unclaimed and meant overlays quietly accumulated on every refresh
-  // in general. Must run before the early-return below, not after —
-  // unclaiming your last remaining hex takes claimed.length to 0, and
-  // that hex's border still needs to disappear even though there's
-  // nothing left to redraw afterward.
-  await clearAllHexOverlayDrawings();
+function overlaySignature(data) {
+  return [OVERLAY_VERSION, Math.round(data.x), Math.round(data.y), Math.round(data.shape.width), Math.round(data.shape.height)].join(",");
+}
 
-  const claimed = getClaimedHexes();
-  if (!claimed.length) return;
+function withOverlayFlags(data, key) {
+  data.flags = { [MODULE_ID]: { [HEX_OVERLAY_FLAG]: true, overlayKey: key, overlaySig: overlaySignature(data) } };
+  return data;
+}
 
+/** Pure comparison, kept separate so it can be tested outside Foundry.
+ *  existing: [{ id, key, sig }]; desired: Map(key -> drawing data). */
+export function diffOverlayDocs(existing, desired) {
+  const keep = new Set();
+  const toDelete = [];
+  for (const doc of existing) {
+    const want = doc.key ? desired.get(doc.key) : null;
+    const wantSig = want?.flags?.[MODULE_ID]?.overlaySig;
+    if (!want || keep.has(doc.key) || wantSig !== doc.sig) toDelete.push(doc.id);
+    else keep.add(doc.key);
+  }
+  const toCreate = [...desired].filter(([key]) => !keep.has(key)).map(([, data]) => data);
+  return { toDelete, toCreate };
+}
+
+function buildDesiredOverlays(claimed) {
+  const desired = new Map();
   const claimedKeys = new Set(claimed.map((h) => h.key));
-  const geo = new Map();
+  const fillType = CONST.DRAWING_FILL_TYPES?.SOLID ?? 1;
+  const noFill = CONST.DRAWING_FILL_TYPES?.NONE ?? 0;
+
   for (const hex of claimed) {
     const offset = { i: hex.i, j: hex.j };
     const center = canvas.grid.getCenterPoint(offset);
-    geo.set(hex.key, { offset, center, corners: computeHexCorners(center) });
-  }
+    const corners = computeHexCorners(center);
 
-  const creations = [];
-  const fillType = CONST.DRAWING_FILL_TYPES?.SOLID ?? 1;
-  const noFill = CONST.DRAWING_FILL_TYPES?.NONE ?? 0;
-  const overlayFlag = { flags: { [MODULE_ID]: { [HEX_OVERLAY_FLAG]: true } } };
-
-  for (const hex of claimed) {
-    const { offset, center, corners } = geo.get(hex.key);
-
-    // Fill — one hex-shaped polygon, no stroke. Adjacent same-colour
-    // fills with no border between them read as a single continuous
-    // shape, which is what makes this "glob".
+    // Fill — one hex-shaped polygon, no stroke. Neighbouring fills with
+    // no border between them read as one continuous territory.
     const xs = corners.map((c) => c.x);
     const ys = corners.map((c) => c.y);
     const minX = Math.min(...xs);
     const minY = Math.min(...ys);
-    const width = Math.max(...xs) - minX;
-    const height = Math.max(...ys) - minY;
-    // Explicitly close the loop by repeating the first corner — an
-    // open point list is the most likely reason one edge wasn't
-    // rendering before.
     const closed = [...corners, corners[0]];
-    const points = closed.flatMap((c) => [c.x - minX, c.y - minY]);
+    desired.set(
+      `fill:${hex.key}`,
+      withOverlayFlags(
+        {
+          shape: { type: "p", points: closed.flatMap((c) => [c.x - minX, c.y - minY]), width: Math.max(...xs) - minX, height: Math.max(...ys) - minY },
+          x: minX,
+          y: minY,
+          strokeWidth: 0,
+          strokeAlpha: 0,
+          fillColor: "#e8b651",
+          fillAlpha: 0.12,
+          fillType,
+          locked: false
+        },
+        `fill:${hex.key}`
+      )
+    );
 
-    creations.push({
-      shape: { type: "p", points, width, height },
-      x: minX,
-      y: minY,
-      strokeWidth: 0,
-      strokeAlpha: 0,
-      fillColor: "#e8b651",
-      fillAlpha: 0.12,
-      fillType,
-      locked: false,
-      ...overlayFlag
-    });
-
-    // Border — one segment per edge, skipped if that edge borders
-    // another claimed hex. Matched to a neighbor by comparing the
-    // edge's direction from center against each neighbor's direction
-    // from center (closest angle wins) rather than trusting that
-    // getAdjacentOffsets and our corner list share an index order.
+    // Border — one segment per edge, skipped where it touches another
+    // claimed hex. Edges are matched to neighbours by direction from the
+    // centre rather than by list order.
     let neighborOffsets = [];
     try {
       neighborOffsets = canvas.grid.getAdjacentOffsets(offset);
@@ -512,51 +538,83 @@ async function refreshAllHexOverlays() {
     for (let i = 0; i < 6; i++) {
       const a = corners[i];
       const b = corners[(i + 1) % 6];
-      const midX = (a.x + b.x) / 2;
-      const midY = (a.y + b.y) / 2;
-      const edgeAngle = Math.atan2(midY - center.y, midX - center.x);
+      const edgeAngle = Math.atan2((a.y + b.y) / 2 - center.y, (a.x + b.x) / 2 - center.x);
 
       let matchedKey = null;
       let bestDiff = Infinity;
       for (const nc of neighborCenters) {
-        const angle = Math.atan2(nc.center.y - center.y, nc.center.x - center.x);
-        let diff = Math.abs(angle - edgeAngle);
+        let diff = Math.abs(Math.atan2(nc.center.y - center.y, nc.center.x - center.x) - edgeAngle);
         if (diff > Math.PI) diff = 2 * Math.PI - diff;
         if (diff < bestDiff) {
           bestDiff = diff;
           matchedKey = nc.key;
         }
       }
-      const sharesEdgeWithClaimedNeighbor = matchedKey && bestDiff < Math.PI / 6 && claimedKeys.has(matchedKey);
-      if (sharesEdgeWithClaimedNeighbor) continue;
+      if (matchedKey && bestDiff < Math.PI / 6 && claimedKeys.has(matchedKey)) continue;
 
       const segMinX = Math.min(a.x, b.x);
       const segMinY = Math.min(a.y, b.y);
-      creations.push({
-        shape: {
-          type: "p",
-          points: [a.x - segMinX, a.y - segMinY, b.x - segMinX, b.y - segMinY],
-          width: Math.abs(b.x - a.x) || 1,
-          height: Math.abs(b.y - a.y) || 1
-        },
-        x: segMinX,
-        y: segMinY,
-        strokeColor: "#e8b651",
-        strokeWidth: 3,
-        strokeAlpha: 0.75,
-        fillAlpha: 0,
-        fillType: noFill,
-        locked: false,
-        ...overlayFlag
-      });
+      const key = `edge:${hex.key}:${i}`;
+      desired.set(
+        key,
+        withOverlayFlags(
+          {
+            shape: {
+              type: "p",
+              points: [a.x - segMinX, a.y - segMinY, b.x - segMinX, b.y - segMinY],
+              width: Math.abs(b.x - a.x) || 1,
+              height: Math.abs(b.y - a.y) || 1
+            },
+            x: segMinX,
+            y: segMinY,
+            strokeColor: "#e8b651",
+            strokeWidth: 3,
+            strokeAlpha: 0.75,
+            fillAlpha: 0,
+            fillType: noFill,
+            locked: false
+          },
+          key
+        )
+      );
     }
   }
+  return desired;
+}
 
+async function refreshAllHexOverlays() {
+  const scene = canvas?.scene;
+  if (!scene) return;
+
+  const claimed = getClaimedHexes().filter(onThisScene);
+  let desired;
   try {
-    await canvas.scene.createEmbeddedDocuments("Drawing", creations);
+    desired = buildDesiredOverlays(claimed);
   } catch (err) {
-    console.error("PF2e Revamped Kingdoms | Failed to draw hex overlays", err);
+    console.error("PF2e Revamped Kingdoms | Couldn't work out hex overlay shapes", err);
+    return;
   }
+
+  const existing = scene.drawings
+    .filter((d) => d.getFlag(MODULE_ID, HEX_OVERLAY_FLAG))
+    .map((d) => ({ id: d.id, key: d.getFlag(MODULE_ID, "overlayKey") ?? null, sig: d.getFlag(MODULE_ID, "overlaySig") ?? null }));
+  const { toDelete, toCreate } = diffOverlayDocs(existing, desired);
+
+  if (toDelete.length) {
+    try {
+      await scene.deleteEmbeddedDocuments("Drawing", toDelete);
+    } catch (err) {
+      console.warn("PF2e Revamped Kingdoms | Couldn't remove old hex overlays (they may already be gone)", err);
+    }
+  }
+  if (toCreate.length) {
+    try {
+      await scene.createEmbeddedDocuments("Drawing", toCreate);
+    } catch (err) {
+      console.error("PF2e Revamped Kingdoms | Failed to draw hex overlays", err);
+    }
+  }
+  updateTooltipScene();
 }
 
 /** GM safety net: wipes every flagged hex-overlay drawing without
@@ -578,6 +636,7 @@ export async function clearHexOverlays() {
 const MAX_RECONNOITERED = 3;
 
 export async function markReconnoitered() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offset = await pickHex("Click the hex to mark as Reconnoitered.");
@@ -589,7 +648,7 @@ export async function markReconnoitered() {
       ui.notifications.warn("That hex is already marked Reconnoitered.");
       return;
     }
-    if (getClaimedHexes().some((h) => h.key === key)) {
+    if (getClaimedHexes().some((h) => h.key === key && onThisScene(h))) {
       ui.notifications.warn("That hex is already claimed — Reconnoitered only matters for claiming.");
       return;
     }
@@ -615,6 +674,7 @@ export async function markReconnoitered() {
 }
 
 export async function claimHex({ ignoreCost = false } = {}) {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const claimed = getClaimedHexes();
@@ -622,19 +682,20 @@ export async function claimHex({ ignoreCost = false } = {}) {
     if (!offset) return;
     const key = hexKey(offset);
 
-    if (claimed.some((h) => h.key === key)) {
+    const claimedHere = claimed.filter(onThisScene);
+    if (claimedHere.some((h) => h.key === key)) {
       ui.notifications.warn("That hex is already claimed.");
       return;
     }
 
-    if (claimed.length > 0) {
+    if (claimedHere.length > 0) {
       let adjacentKeys = [];
       try {
         adjacentKeys = canvas.grid.getAdjacentOffsets(offset).map(hexKey);
       } catch (err) {
         console.error("PF2e Revamped Kingdoms | getAdjacentOffsets failed", err);
       }
-      const isAdjacent = claimed.some((h) => adjacentKeys.includes(h.key));
+      const isAdjacent = claimedHere.some((h) => adjacentKeys.includes(h.key));
       if (!isAdjacent) {
         ui.notifications.warn("That hex isn't adjacent to territory you've already claimed.");
         return;
@@ -682,13 +743,13 @@ export async function unclaimHex() {
     if (!offset) return;
     const key = hexKey(offset);
 
-    if (getPlacedBuildings().some((p) => p.key === key)) {
+    if (getPlacedBuildings().some((p) => p.key === key && onThisScene(p))) {
       ui.notifications.warn("That hex still has a district on it — destroy the district first.");
       return;
     }
 
     const claimed = getClaimedHexes();
-    const idx = claimed.findIndex((h) => h.key === key);
+    const idx = claimed.findIndex((h) => h.key === key && onThisScene(h));
     if (idx === -1) {
       ui.notifications.warn("That hex isn't claimed.");
       return;
@@ -734,27 +795,28 @@ function getHexBoxSize() {
   return grid.size;
 }
 
-async function placeSingleBuilding(building, offset) {
+/** Where a single-placement building's tile goes and how big it is.
+ *  Shared by placing and by "Recenter District Tiles", which used to do
+ *  its own sum with the raw grid size — so recentering quietly resized
+ *  any building with its own scale (or a non-default scale setting). */
+async function singleTileRect(building, offset) {
   const center = canvas.grid.getCenterPoint(offset);
-  const hexBox = getHexBoxSize();
   const scale = building.scale ?? getDefaultSingleBuildingScale() ?? 1;
-  const boxSize = hexBox * scale;
+  const boxSize = getHexBoxSize() * scale;
   const { w, h } = await fitToBox(building.tileImage, boxSize);
-  // Default center is exactly the hex center (offsetX/offsetY both 0 —
-  // "50%/50%"); the offsets just nudge from there if a specific asset
-  // needs it.
-  const x = center.x - w / 2 + (building.offsetX ?? 0) * boxSize;
-  const y = center.y - h / 2 + (building.offsetY ?? 0) * boxSize;
+  // Centred on the hex; the offsets just nudge it if an asset needs it.
+  return {
+    x: center.x - w / 2 + (building.offsetX ?? 0) * boxSize,
+    y: center.y - h / 2 + (building.offsetY ?? 0) * boxSize,
+    width: w,
+    height: h
+  };
+}
 
+async function placeSingleBuilding(building, offset) {
+  const rect = await singleTileRect(building, offset);
   const [tile] = await canvas.scene.createEmbeddedDocuments("Tile", [
-    {
-      texture: { src: building.tileImage },
-      x,
-      y,
-      width: w,
-      height: h,
-      locked: false
-    }
+    { texture: { src: building.tileImage }, ...rect, locked: false }
   ]);
   return tile ? [tile.id] : [];
 }
@@ -806,6 +868,7 @@ async function placeScatterBuilding(building, offset) {
 }
 
 export async function buildDistrict({ ignoreCost = false } = {}) {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const buildings = getBuildings();
@@ -824,13 +887,13 @@ export async function buildDistrict({ ignoreCost = false } = {}) {
     const key = hexKey(offset);
 
     const claimed = getClaimedHexes();
-    if (!claimed.some((h) => h.key === key)) {
+    if (!claimed.some((h) => h.key === key && onThisScene(h))) {
       ui.notifications.warn("You can only build on a hex you've claimed — use Claim a Hex first.");
       return;
     }
 
     const placed = getPlacedBuildings();
-    if (placed.some((p) => p.key === key)) {
+    if (placed.some((p) => p.key === key && onThisScene(p))) {
       ui.notifications.warn("That hex already has a district built on it.");
       return;
     }
@@ -937,7 +1000,7 @@ export async function destroyDistrict() {
     const key = hexKey(offset);
 
     const placed = getPlacedBuildings();
-    const idx = placed.findIndex((p) => p.key === key);
+    const idx = placed.findIndex((p) => p.key === key && onThisScene(p));
     if (idx === -1) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -974,6 +1037,7 @@ export async function destroyDistrict() {
  *  cosmetic/tracking only for now — they show on the hover tooltip, but
  *  nothing currently reads a building's level to change its numbers. */
 export async function upgradeBuilding() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offset = await pickHex("Click the district you want to upgrade.");
@@ -981,7 +1045,7 @@ export async function upgradeBuilding() {
     const key = hexKey(offset);
 
     const placed = getPlacedBuildings();
-    const record = placed.find((p) => p.key === key);
+    const record = placed.find((p) => p.key === key && onThisScene(p));
     if (!record) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -1017,6 +1081,7 @@ export async function upgradeBuilding() {
  *  there), which is why this gets its own mechanic instead of just
  *  reusing the generic upgrade. */
 export async function levelUpStore() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offset = await pickHex("Click the store you want to level up.");
@@ -1024,7 +1089,7 @@ export async function levelUpStore() {
     const key = hexKey(offset);
 
     const placed = getPlacedBuildings();
-    const record = placed.find((p) => p.key === key);
+    const record = placed.find((p) => p.key === key && onThisScene(p));
     if (!record) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -1069,6 +1134,7 @@ export async function levelUpStore() {
  *  pickHex for the other dialog patterns already used successfully in
  *  this file) instead of introducing an untested form control. */
 export async function manageBankStorage() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offset = await pickHex("Click the Bank (or other storage building) you want to manage.");
@@ -1076,7 +1142,7 @@ export async function manageBankStorage() {
     const key = hexKey(offset);
 
     const placed = getPlacedBuildings();
-    const record = placed.find((p) => p.key === key);
+    const record = placed.find((p) => p.key === key && onThisScene(p));
     if (!record) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -1092,6 +1158,7 @@ export async function manageBankStorage() {
     const bonus = building.storageBonusKw ?? 0;
     const choice = await foundry.applications.api.DialogV2.wait({
       window: { title: `${building.name} — Storage` },
+      classes: ["pf2e-rk-dialog"],
       content: `<p>Currently storing <strong>${stored} / ${capacity} KW</strong>.</p><p>${
         stored >= capacity
           ? `Full — earning +${bonus} KW each kingdom turn while it stays that way.`
@@ -1138,6 +1205,7 @@ export async function manageBankStorage() {
  *  Simplified from the rulebook's "completes after 1 kingdom turn" into
  *  an immediate swap; see the ability's in-app reminder note. */
 export async function moveDistrict() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offsetA = await pickHex("Click the first district to move.");
@@ -1145,7 +1213,7 @@ export async function moveDistrict() {
     const keyA = hexKey(offsetA);
 
     const placed = getPlacedBuildings();
-    const recordA = placed.find((p) => p.key === keyA);
+    const recordA = placed.find((p) => p.key === keyA && onThisScene(p));
     if (!recordA) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -1159,7 +1227,7 @@ export async function moveDistrict() {
       return;
     }
 
-    const recordB = placed.find((p) => p.key === keyB);
+    const recordB = placed.find((p) => p.key === keyB && onThisScene(p));
     if (!recordB) {
       ui.notifications.warn("There's no district on that second hex.");
       return;
@@ -1262,6 +1330,7 @@ function availableTransformationsFor(buildingId) {
  *  completeDueTransformations() once the timer reaches 0, same
  *  split as building a brand new district. */
 export async function applyTransformation() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offset = await pickHex("Click the district you want to apply a transformation to.");
@@ -1269,7 +1338,7 @@ export async function applyTransformation() {
     const key = hexKey(offset);
 
     const placed = getPlacedBuildings();
-    const record = placed.find((p) => p.key === key);
+    const record = placed.find((p) => p.key === key && onThisScene(p));
     if (!record) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -1297,7 +1366,7 @@ export async function applyTransformation() {
           <div class="form-group">
             <label>Transform into:</label>
             <select name="transformationId">
-              ${options.map((t) => `<option value="${t.id}">${t.name} (${t.kwCost} KW, ${t.turnTimeout} turn(s))</option>`).join("")}
+              ${options.map((t) => `<option value="${escapeHTML(t.id)}">${escapeHTML(t.name)} (${t.kwCost} KW, ${t.turnTimeout} turn(s))</option>`).join("")}
             </select>
           </div>`,
         ok: {
@@ -1413,6 +1482,7 @@ export async function completeDueTransformations() {
  *  remaining build time by one turn, deduct 2 KW. Click a hex that has
  *  a building still under construction. */
 export async function reduceBuildTime() {
+  if (!requireGM("change the kingdom map")) return;
   minimizeAllModuleWindows();
   try {
     const offset = await pickHex("Click the district you want to expedite.");
@@ -1420,7 +1490,7 @@ export async function reduceBuildTime() {
     const key = hexKey(offset);
 
     const placed = getPlacedBuildings();
-    const record = placed.find((p) => p.key === key);
+    const record = placed.find((p) => p.key === key && onThisScene(p));
     if (!record) {
       ui.notifications.warn("There's no district on that hex.");
       return;
@@ -1488,24 +1558,22 @@ export async function recenterAllDistrictTiles() {
   const buildings = getBuildings();
   const updates = [];
 
+  const tilesHere = canvas.scene.tiles;
   for (const record of placed) {
+    if (!onThisScene(record)) continue;
     const building = buildings.find((b) => b.id === record.buildingId);
     if (!building?.tileImage || building.placementMode === "scatter") continue;
     if (!record.tileIds?.length) continue;
 
-    const offset = { i: record.i, j: record.j };
-    let center;
+    let rect;
     try {
-      center = canvas.grid.getCenterPoint(offset);
+      rect = await singleTileRect(building, { i: record.i, j: record.j });
     } catch {
       continue;
     }
-    const boxSize = canvas.grid.size;
-    const { w, h } = await fitToBox(building.tileImage, boxSize);
-    const x = center.x - w / 2 + (building.offsetX ?? 0) * boxSize;
-    const y = center.y - h / 2 + (building.offsetY ?? 0) * boxSize;
 
     for (const tileId of record.tileIds) {
+      if (!tilesHere.has(tileId)) continue; // removed by hand on the canvas
       // "texture.src" included so this also picks up an image change made
       // in Kingdom Configuration — a building's own definition changing
       // doesn't retroactively touch tiles already placed on the canvas,
@@ -1513,7 +1581,7 @@ export async function recenterAllDistrictTiles() {
       // whenever it was placed. This utility is the fix for that: run it
       // after editing a building's art to push the update to everything
       // already built.
-      updates.push({ _id: tileId, x, y, width: w, height: h, "texture.src": building.tileImage });
+      updates.push({ _id: tileId, ...rect, "texture.src": building.tileImage });
     }
   }
 
@@ -1556,8 +1624,40 @@ export async function recenterAllDistrictTiles() {
 
 const TOOLTIP_SCENE_NAME = "The Stolen Lands";
 
+/* Tooltips used to work only on a scene named exactly "The Stolen Lands".
+   They now also switch on for any scene the kingdom has claimed hexes or
+   districts on, so renaming or copying the map doesn't silently turn them
+   off. Worked out once per scene change (and after claims change) rather
+   than on every mouse movement. */
+let tooltipSceneActive = false;
+
+function updateTooltipScene() {
+  const scene = canvas?.scene;
+  if (!scene) {
+    tooltipSceneActive = false;
+    return;
+  }
+  const mine = (rec) => rec.sceneId === scene.id;
+  tooltipSceneActive =
+    scene.name === TOOLTIP_SCENE_NAME || getClaimedHexes().some(mine) || getPlacedBuildings().some(mine);
+}
+
 function isTooltipScene() {
-  return canvas?.scene?.name === TOOLTIP_SCENE_NAME;
+  return tooltipSceneActive;
+}
+
+function setTooltipsEnabled(value) {
+  tooltipsEnabled = !!value;
+  try {
+    game.settings.set(MODULE_ID, "tooltipsEnabled", tooltipsEnabled);
+  } catch {
+    // remembering the choice is a nicety; the toggle still works without it
+  }
+  if (!tooltipsEnabled) {
+    currentHoverKey = null;
+    hideTooltip();
+    hideHexOutline();
+  }
 }
 
 let tooltipEl = null;
@@ -1600,10 +1700,10 @@ function showBuildingTooltip(building, record) {
   const capacity = building.storageCapacity ?? 0;
   const stored = record?.storedKw ?? 0;
   showTooltipContent(`
-    ${building.tileImage ? `<div class="pf2e-rk-tile-tooltip__img" style="background-image:url('${building.tileImage}')"></div>` : ""}
+    ${building.tileImage ? `<div class="pf2e-rk-tile-tooltip__img" style="background-image:${escapeHTML(cssUrl(building.tileImage))}"></div>` : ""}
     <div class="pf2e-rk-tile-tooltip__body">
-      <h4>${building.name}${level > 1 ? ` <span class="pf2e-rk-tile-tooltip__level">Level ${level}</span>` : ""}</h4>
-      ${building.traits?.length ? `<p class="pf2e-rk-tile-tooltip__traits">${building.traits.join(", ")}</p>` : ""}
+      <h4>${escapeHTML(building.name)}${level > 1 ? ` <span class="pf2e-rk-tile-tooltip__level">Level ${level}</span>` : ""}</h4>
+      ${building.traits?.length ? `<p class="pf2e-rk-tile-tooltip__traits">${escapeHTML(building.traits.join(", "))}</p>` : ""}
       ${isStore ? `<p class="pf2e-rk-tile-tooltip__traits">Trades items up to party level + ${level}</p>` : ""}
       ${capacity > 0 ? `<p class="pf2e-rk-tile-tooltip__traits">Storage: ${stored}/${capacity} KW${stored >= capacity ? " (full — earning its bonus)" : ""}</p>` : ""}
       ${turnsRemaining > 0 ? `<p class="pf2e-rk-tile-tooltip__unavailable">&#9203; Under construction — ${turnsRemaining} more kingdom turn(s)</p>` : ""}
@@ -1634,7 +1734,7 @@ function hideTooltip() {
  *  module already stores placements/claims under, so this is a direct
  *  lookup, not bounding-box math. */
 function findBuildingAtHexKey(key) {
-  const record = getPlacedBuildings().find((p) => p.key === key);
+  const record = getPlacedBuildings().find((p) => p.key === key && onThisScene(p));
   if (!record) return null;
   const building = getBuildings().find((b) => b.id === record.buildingId);
   return building ? { building, record } : null;
@@ -1805,13 +1905,8 @@ function ensureToggleButton() {
     btn.type = "button";
     btn.className = "pf2e-rk-tooltip-toggle";
     btn.addEventListener("click", () => {
-      tooltipsEnabled = !tooltipsEnabled;
+      setTooltipsEnabled(!tooltipsEnabled);
       updateToggleButtonLabel();
-      if (!tooltipsEnabled) {
-        currentHoverKey = null;
-        hideTooltip();
-        hideHexOutline();
-      }
     });
     document.body.appendChild(btn);
     toggleButtonEl = btn;
@@ -1833,18 +1928,11 @@ function addTooltipToggleControl(controls) {
     if (!group?.tools || !isTooltipScene()) return false;
     group.tools["pf2e-rk-tooltip-toggle"] = {
       name: "pf2e-rk-tooltip-toggle",
-      title: "Kingdom Building Tooltips (Stolen Lands map)",
+      title: "Kingdom building tooltips",
       icon: "fas fa-info-circle",
       toggle: true,
       active: tooltipsEnabled,
-      onChange: (_event, active) => {
-        tooltipsEnabled = active;
-        if (!active) {
-          currentHoverKey = null;
-          hideTooltip();
-          hideHexOutline();
-        }
-      }
+      onChange: (_event, active) => setTooltipsEnabled(active)
     };
     return true;
   } catch (err) {
@@ -1855,6 +1943,12 @@ function addTooltipToggleControl(controls) {
 
 /** Called once from main.js on init. */
 export function initHoverTooltips() {
+  try {
+    tooltipsEnabled = game.settings.get(MODULE_ID, "tooltipsEnabled") ?? true;
+  } catch {
+    tooltipsEnabled = true;
+  }
+
   Hooks.on("getSceneControlButtons", (controls) => {
     sceneControlToggleAdded = addTooltipToggleControl(controls);
     if (sceneControlToggleAdded && toggleButtonEl) {
@@ -1864,6 +1958,7 @@ export function initHoverTooltips() {
   });
 
   const onCanvasReady = () => {
+    updateTooltipScene();
     ui.controls?.render(); // re-checks the scene-gate for the Token Controls path
     if (!sceneControlToggleAdded) ensureToggleButton();
     wireCanvasHover();
