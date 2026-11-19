@@ -4195,85 +4195,64 @@
 }
 
 
-/* ==========================================================================
-   Kingdom tooltip toggle — floating button, injected directly rather
-   than via Foundry's scene-controls API (see hexes.js for why). Sits
-   just right of Foundry's own left-hand tool column.
-   ========================================================================== */
-.pf2e-rk-tooltip-toggle {
-  position: fixed;
-  top: 10px;
-  left: 60px;
-  z-index: 60;
-  border: 1px solid #f1cf76;
-  background: linear-gradient(180deg, #f3d27a 0%, #e8b651 45%, #a9853c 100%);
-  color: #2b1d07;
-  font-family: var(--font-body, sans-serif);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-}
-.pf2e-rk-tooltip-toggle:hover {
-  filter: brightness(1.08);
-}
-.pf2e-rk-tooltip-toggle:not(.is-active) {
-  background: linear-gradient(180deg, #b49a63 0%, #7f6738 100%);
-  color: rgba(43, 29, 7, 0.75);
-}
 
 
 /* ==========================================================================
-   Gold controls — the Kingdom button at the top of the left-hand column
-   and the map tooltip toggle in the token tools. Unscoped on purpose:
-   they live in Foundry's own controls bar, not inside a module window.
+   The Kingdom menu in Foundry's controls: a gold castle at the top of the
+   left-hand column, and two bronze buttons in its own menu. Unscoped on
+   purpose (they live in Foundry's bar, not a module window), and the
+   !important flags are deliberate: Foundry's own highlight colours and
+   UI theme modules otherwise repaint these the moment they're selected.
    ========================================================================== */
-/* The extra selectors make sure Foundry's own "active" highlight (the
-   purple) can't win over the gold when the toggle is switched on. */
-#scene-controls button.pf2e-rk-kingdom-launch,
-#scene-controls button.ui-control.pf2e-rk-kingdom-launch,
-#scene-controls button[data-tool="pf2e-rk-tooltip-toggle"],
-#scene-controls button.ui-control[data-tool="pf2e-rk-tooltip-toggle"]:is(.active, [aria-pressed="true"]),
-#controls li.pf2e-rk-kingdom-launch {
-  color: #2b1d07;
-  background: radial-gradient(circle at 34% 28%, #fbe7a8 0%, #e8b651 44%, #9c7c38 100%);
-  border: 1px solid #f1cf76;
+#scene-controls [data-control="pf2e-rk-kingdom"] {
+  background: radial-gradient(circle at 34% 28%, #fbe7a8 0%, #e8b651 44%, #9c7c38 100%) !important;
+  border: 1px solid #f1cf76 !important;
+  color: #2b1d07 !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 248, 220, 0.6),
     inset 0 -2px 3px rgba(80, 52, 8, 0.45),
-    0 0 5px rgba(232, 182, 81, 0.35);
-  text-shadow: 0 1px 0 rgba(255, 236, 190, 0.5);
-  transition: filter 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+    0 0 5px rgba(232, 182, 81, 0.35) !important;
 }
-#scene-controls button.pf2e-rk-kingdom-launch:hover,
-#scene-controls button[data-tool="pf2e-rk-tooltip-toggle"]:hover,
-#controls li.pf2e-rk-kingdom-launch:hover {
-  filter: brightness(1.1);
+#scene-controls [data-control="pf2e-rk-kingdom"]:is(.active, [aria-pressed="true"]) {
   box-shadow:
     inset 0 1px 0 rgba(255, 248, 220, 0.7),
     inset 0 -2px 3px rgba(80, 52, 8, 0.4),
-    0 0 10px rgba(232, 182, 81, 0.6);
+    0 0 0 1px #2b1d07,
+    0 0 11px rgba(232, 182, 81, 0.75) !important;
 }
-#scene-controls button.pf2e-rk-kingdom-launch:active,
-#controls li.pf2e-rk-kingdom-launch:active {
-  transform: translateY(1px);
+
+#scene-controls [data-tool="pf2e-rk-open"],
+#scene-controls [data-tool="pf2e-rk-tooltips"],
+#controls [data-tool="pf2e-rk-open"],
+#controls [data-tool="pf2e-rk-tooltips"] {
+  background: radial-gradient(circle at 34% 28%, #f2c48f 0%, #b9773f 46%, #6a3c1a 100%) !important;
+  border: 1px solid #d99a5b !important;
+  color: #2a1406 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 228, 196, 0.55),
+    inset 0 -2px 3px rgba(60, 28, 6, 0.5),
+    0 0 4px rgba(185, 119, 63, 0.35) !important;
 }
-/* Toggle switched off: still gold, but tarnished, so on/off reads at a glance */
-#scene-controls button.ui-control[data-tool="pf2e-rk-tooltip-toggle"][aria-pressed="false"]:not(.active) {
-  background: radial-gradient(circle at 34% 28%, #cdb582 0%, #8f7442 55%, #5b4826 100%);
-  color: rgba(43, 29, 7, 0.8);
-  box-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.25), inset 0 -2px 3px rgba(40, 26, 4, 0.5);
+/* Tooltips switched off: the bronze goes dull and dark */
+#scene-controls [data-tool="pf2e-rk-tooltips"][aria-pressed="false"]:not(.active),
+#controls [data-tool="pf2e-rk-tooltips"]:not(.active) {
+  background: radial-gradient(circle at 34% 28%, #8a6a4c 0%, #5a3d24 55%, #34210f 100%) !important;
+  border-color: #6e4a2a !important;
+  color: rgba(240, 200, 160, 0.55) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 228, 196, 0.15), inset 0 -2px 3px rgba(20, 10, 2, 0.6) !important;
 }
-/* A little breathing room under the launcher so it reads as its own thing */
-#scene-controls-layers > li:has(> .pf2e-rk-kingdom-launch) {
-  padding-bottom: 6px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid rgba(232, 182, 81, 0.35);
+#scene-controls [data-control="pf2e-rk-kingdom"]::before,
+#scene-controls [data-tool="pf2e-rk-open"]::before,
+#scene-controls [data-tool="pf2e-rk-tooltips"]::before,
+#controls [data-tool="pf2e-rk-open"] i,
+#controls [data-tool="pf2e-rk-tooltips"] i {
+  color: inherit !important;
+  text-shadow: 0 1px 0 rgba(255, 236, 200, 0.45);
 }
-#controls li.pf2e-rk-kingdom-launch {
-  margin-bottom: 8px;
+#scene-controls [data-control="pf2e-rk-kingdom"]:hover,
+#scene-controls [data-tool="pf2e-rk-open"]:hover,
+#scene-controls [data-tool="pf2e-rk-tooltips"]:hover {
+  filter: brightness(1.12);
 }
 
 /* ==========================================================================
@@ -4427,3 +4406,520 @@
 .kingdom-app .timeline-wrap::after { z-index: 0; }
 .kingdom-app .timeline-wrap > .timeline,
 .kingdom-app .timeline-wrap > .timeline-empty { position: relative; z-index: 1; }
+
+/* ==========================================================================
+   Factions: leaders, ladders, favours, minor factions and patrons
+   ========================================================================== */
+.kingdom-app .faction-menu__tier {
+  margin: -0.4cqh 0 0;
+  text-align: center;
+  font-size: clamp(11px, 1.1cqh, 15px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(26, 28, 30, 0.55);
+}
+.kingdom-app .faction-menu__mood {
+  margin: 0.2cqh auto 0.4cqh;
+  padding: 0.1cqh 0.8cqw;
+  border-radius: 999px;
+  background: rgba(138, 28, 28, 0.12);
+  color: var(--color-red-dark);
+  font-family: var(--font-display);
+  font-size: clamp(13px, 1.4cqh, 19px);
+}
+.kingdom-app .faction-leader {
+  display: flex;
+  gap: 0.6cqw;
+  align-items: flex-start;
+  padding: 0.6cqh 0.4cqw 0.2cqh;
+}
+.kingdom-app .faction-leader__portrait {
+  flex: none;
+  width: 4.4cqh;
+  height: 4.4cqh;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center 20%;
+  filter: sepia(0.8);
+  box-shadow: 0 0 0 2px rgba(156, 124, 56, 0.6), 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.kingdom-app .faction-leader__text {
+  display: flex;
+  flex-direction: column;
+  font-size: clamp(13px, 1.4cqh, 19px);
+  line-height: 1.3;
+  color: var(--color-ink);
+}
+.kingdom-app .faction-leader__role {
+  font-size: 0.85em;
+  color: rgba(26, 28, 30, 0.6);
+}
+.kingdom-app .faction-leader q {
+  margin-top: 0.3cqh;
+  font-style: italic;
+  color: rgba(26, 28, 30, 0.8);
+}
+.kingdom-app .faction-menu__agenda {
+  margin: 0.2cqh 0.4cqw;
+  font-family: var(--font-display);
+  font-size: clamp(14px, 1.5cqh, 20px);
+  color: #3a2c14;
+}
+.kingdom-app .faction-menu__rival,
+.kingdom-app .faction-menu__trade {
+  margin: 0 0.4cqw 0.3cqh;
+  font-size: clamp(12px, 1.25cqh, 17px);
+  color: var(--color-red-dark);
+}
+.kingdom-app .faction-menu__trade { color: #2b5a1e; }
+.kingdom-app .faction-ladder ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.kingdom-app .faction-ladder li {
+  display: flex;
+  gap: 0.5cqw;
+  padding: 0.25cqh 0.3cqw;
+  border-radius: 3px;
+  opacity: 0.6;
+}
+.kingdom-app .faction-ladder li::marker { content: ""; }
+.kingdom-app .faction-ladder li b {
+  flex: none;
+  width: 2.4ch;
+  font-family: var(--font-display);
+}
+.kingdom-app .faction-ladder li.is-active {
+  opacity: 1;
+  background: rgba(255, 253, 245, 0.45);
+  box-shadow: inset 2px 0 0 var(--color-red);
+}
+.kingdom-app .faction-favour.is-off { opacity: 0.55; }
+.kingdom-app .faction-favour__note {
+  font-size: 0.85em;
+  font-style: italic;
+}
+.kingdom-app .faction-menu__card--minor,
+.kingdom-app .faction-menu__card--patron {
+  flex: 0 0 250px !important;
+}
+.kingdom-app .faction-menu__card--minor .faction-card__portrait,
+.kingdom-app .faction-menu__card--patron .faction-card__portrait {
+  flex-basis: 22%;
+}
+.kingdom-app .faction-menu__card--patron {
+  background-image:
+    var(--rk-grain),
+    linear-gradient(180deg, #e2d9c4, #c9bb98);
+}
+
+/* ==========================================================================
+   Petition board on the Decide screen: notes pinned to a board
+   ========================================================================== */
+.kingdom-app .petition-board {
+  flex: 0 0 300px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4cqh;
+  padding: 1.6cqh 1cqw;
+  overflow-y: auto;
+  border-radius: 0.6cqh;
+  background:
+    var(--rk-grain),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.08) 0 2px, transparent 2px 38px),
+    linear-gradient(180deg, #5a4127, #3f2c19);
+  background-size: 180px 180px, auto, auto;
+  box-shadow: inset 0 0 0 2px #2a1d10, inset 0 0 3cqh rgba(0, 0, 0, 0.45), 0 1cqh 2.2cqh rgba(0, 0, 0, 0.45);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 124, 56, 0.55) transparent;
+}
+.kingdom-app .petition-board__title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(20px, 2.6cqh, 34px);
+  color: var(--color-yellow);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+.kingdom-app .petition-note {
+  position: relative;
+  flex: none;
+  padding: 2cqh 0.9cqw 1.2cqh;
+  border-radius: 2px 4px 3px 5px;
+  background: var(--rk-grain), linear-gradient(180deg, #f1e6c6, #ddcb9f);
+  background-size: 180px 180px, auto;
+  color: var(--color-ink);
+  font-size: clamp(13px, 1.4cqh, 18px);
+  line-height: 1.4;
+  box-shadow: 0 0.6cqh 1.2cqh rgba(0, 0, 0, 0.45);
+  transform: rotate(var(--rk-tilt, -0.8deg));
+}
+.kingdom-app .petition-note:nth-of-type(even) { --rk-tilt: 1.1deg; }
+.kingdom-app .petition-note:nth-of-type(3n) { --rk-tilt: -0.3deg; }
+.kingdom-app .petition-note::before {
+  content: "";
+  position: absolute;
+  top: 0.6cqh;
+  left: 50%;
+  width: 1.4cqh;
+  height: 1.4cqh;
+  min-width: 10px;
+  min-height: 10px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f6dc94 0%, #b98a33 55%, #5e4313 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.kingdom-app .petition-note--urgent::before {
+  background: radial-gradient(circle at 35% 30%, #f3a29a 0%, #a3271f 55%, #4d0e0a 100%);
+}
+.kingdom-app .petition-note__portrait {
+  float: right;
+  width: 4cqh;
+  height: 4cqh;
+  min-width: 30px;
+  min-height: 30px;
+  margin: 0 0 0.4cqh 0.5cqw;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center 20%;
+  filter: sepia(0.8);
+  box-shadow: 0 0 0 2px rgba(156, 124, 56, 0.6);
+}
+.kingdom-app .petition-note__title {
+  margin: 0 0 0.2cqh;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(16px, 1.9cqh, 24px);
+}
+.kingdom-app .petition-note__from {
+  margin: 0 0 0.6cqh;
+  font-size: 0.85em;
+  font-style: italic;
+  color: rgba(26, 28, 30, 0.65);
+}
+.kingdom-app .petition-note__text p { margin: 0 0 0.5cqh; }
+.kingdom-app .petition-note__stakes {
+  margin: 0.2cqh 0;
+  font-size: 0.88em;
+}
+.kingdom-app .petition-note__due {
+  margin: 0.6cqh 0 0;
+  font-family: var(--font-display);
+  color: var(--color-red-dark);
+}
+.kingdom-app .petition-note__actions {
+  display: flex;
+  gap: 0.5cqw;
+  margin-top: 0.8cqh;
+}
+.kingdom-app .petition-note__actions button {
+  flex: 1;
+  border: 1px solid rgba(120, 92, 40, 0.5);
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--color-ink);
+  border-radius: 4px;
+  padding: 0.3cqh 0.4cqw;
+  cursor: pointer;
+}
+.kingdom-app .petition-note__actions button:first-child {
+  background: linear-gradient(180deg, #6fa85a, #3f6b33);
+  color: var(--color-yellow);
+  border-color: rgba(63, 107, 51, 0.8);
+}
+
+/* ==========================================================================
+   Event screen: leaders, choices and petitions
+   ========================================================================== */
+.kingdom-app .event-leaders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2cqh 1.2cqw;
+  margin-bottom: 1.6cqh;
+}
+.kingdom-app .event-leader {
+  display: flex;
+  gap: 0.7cqw;
+  align-items: center;
+  margin: 0;
+  max-width: 22cqw;
+}
+.kingdom-app .event-leader__portrait {
+  flex: none;
+  width: 6cqh;
+  height: 6cqh;
+  min-width: 42px;
+  min-height: 42px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center 20%;
+  box-shadow: 0 0 0 2px rgba(232, 182, 81, 0.7), 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+.kingdom-app .event-leader figcaption {
+  display: flex;
+  flex-direction: column;
+  font-size: clamp(13px, 1.45cqh, 19px);
+  line-height: 1.3;
+  color: rgba(240, 233, 210, 0.85);
+}
+.kingdom-app .event-leader figcaption strong { color: #f6ebcb; }
+.kingdom-app .event-leader__role {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+.kingdom-app .event-leader q {
+  margin-top: 0.2cqh;
+  font-style: italic;
+}
+.kingdom-app .event-choices,
+.kingdom-app .event-petition {
+  display: flex;
+  flex-direction: column;
+  gap: 1cqh;
+  margin-top: 1.4cqh;
+  padding-top: 1.4cqh;
+  border-top: 1px solid rgba(156, 124, 56, 0.35);
+}
+.kingdom-app .event-choice {
+  padding: 0.8cqh 0.8cqw;
+  border-radius: 0.6cqh;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(232, 182, 81, 0.18);
+}
+.kingdom-app .event-choice.is-chosen {
+  border-color: rgba(232, 182, 81, 0.85);
+  background: rgba(232, 182, 81, 0.12);
+}
+.kingdom-app .event-choice.is-passed { opacity: 0.45; }
+.kingdom-app .event-copy .event-choice p,
+.kingdom-app .event-copy .event-petition p {
+  margin: 0.3cqh 0 0;
+  font-size: clamp(14px, 1.55cqh, 21px);
+}
+.kingdom-app .event-copy .event-choice__effects {
+  color: rgba(232, 182, 81, 0.9);
+  font-style: italic;
+}
+.kingdom-app .event-choice__btn {
+  display: inline-block;
+  border: 1px solid rgba(232, 182, 81, 0.8);
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: clamp(15px, 1.7cqh, 23px);
+  padding: 0.4cqh 1cqw;
+  border-radius: 0.5cqh;
+  cursor: pointer;
+}
+span.event-choice__btn { cursor: default; }
+.kingdom-app .event-choice__btn:disabled {
+  cursor: default;
+  filter: saturate(0.4);
+  opacity: 0.7;
+}
+.kingdom-app .event-choice__btn--quiet {
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--color-yellow);
+}
+.kingdom-app .event-petition__actions {
+  display: flex;
+  gap: 0.8cqw;
+}
+.kingdom-app .event-copy .event-petition__state {
+  color: var(--color-gold-light);
+  font-family: var(--font-display);
+}
+.kingdom-app .event-picker-card--queued {
+  position: relative;
+  border-color: rgba(232, 182, 81, 0.7);
+  box-shadow: 0 0 0.8cqh rgba(232, 182, 81, 0.35);
+}
+.kingdom-app .event-picker-card__dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--color-yellow);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Kingdom Configuration: effects, conditions, ladder, memories
+   ========================================================================== */
+.kingdom-app .kc-form input[type="number"] {
+  font-family: var(--font-body);
+  font-size: clamp(14px, 1.4cqh, 18px);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+  box-sizing: border-box;
+}
+.kingdom-app .choice-row {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kingdom-app .choice-row .choice-label { flex: 1; }
+.kingdom-app .effect-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-left: 2px solid rgba(232, 182, 81, 0.35);
+  margin: 4px 0;
+}
+.kingdom-app .kc-block-label {
+  font-size: 12px;
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .effect-row,
+.kingdom-app .condition-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.kingdom-app .effect-row > select,
+.kingdom-app .effect-row > input,
+.kingdom-app .condition-row > select,
+.kingdom-app .condition-row > input {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+.kingdom-app .effect-row .ef-type { flex: 1 1 170px; }
+.kingdom-app .effect-row .ef-faction,
+.kingdom-app .effect-row .ef-event { flex: 1 1 150px; }
+.kingdom-app .effect-row .ef-text { flex: 2 1 180px; }
+.kingdom-app .effect-row .ef-amount,
+.kingdom-app .condition-row .cond-value { flex: 0 0 64px; }
+.kingdom-app .effect-row .ef-faction,
+.kingdom-app .effect-row .ef-amount,
+.kingdom-app .effect-row .ef-text,
+.kingdom-app .effect-row .ef-event {
+  display: none;
+}
+.kingdom-app .effect-row[data-fields~="faction"] .ef-faction,
+.kingdom-app .effect-row[data-fields~="amount"] .ef-amount,
+.kingdom-app .effect-row[data-fields~="text"] .ef-text,
+.kingdom-app .effect-row[data-fields~="event"] .ef-event {
+  display: block;
+}
+.kingdom-app .condition-row .cond-faction,
+.kingdom-app .condition-row .cond-op { flex: 1 1 140px; }
+.kingdom-app .condition-row:not([data-op="atLeast"]):not([data-op="atMost"]) .cond-value {
+  display: none;
+}
+.kingdom-app .effect-readback {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-style: italic;
+  color: rgba(232, 182, 81, 0.9);
+}
+.kingdom-app .kc-mini-btn {
+  align-self: flex-start;
+  border: 1px dashed rgba(232, 182, 81, 0.5);
+  background: transparent;
+  color: var(--color-gold-light);
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.kingdom-app .kc-ladder__row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+.kingdom-app .kc-ladder__row b {
+  flex: none;
+  width: 2.6ch;
+  font-family: var(--font-display);
+  color: var(--color-gold-light);
+}
+.kingdom-app .kc-ladder__row input { flex: 1; }
+.kingdom-app .kc-ladder__row[hidden] { display: none !important; }
+.kingdom-app .kc-memories {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kingdom-app .kc-memories__title {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-gold-light);
+}
+.kingdom-app .kc-memory {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-style: italic;
+}
+.kingdom-app .kc-memory-add {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.kingdom-app .kc-memory-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+}
+.kingdom-app .kc-memory-add button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-yellow);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Long events (leaders + choices) used to spill off the top of the text
+   panel where it couldn't be scrolled to, because the panel centres its
+   content. Auto margins centre short events and let long ones start at
+   the top and scroll. */
+.kingdom-app .event-copy {
+  justify-content: flex-start;
+}
+.kingdom-app .event-copy > :first-child { margin-top: auto; }
+.kingdom-app .event-copy > :last-child { margin-bottom: auto; }
+
+/* Smaller cards for minor factions and patrons get smaller titles */
+.kingdom-app .faction-menu__card--minor .faction-card__title,
+.kingdom-app .faction-menu__card--patron .faction-card__title {
+  font-size: clamp(19px, 2.6cqh, 32px);
+  white-space: normal;
+  line-height: 1.1;
+}

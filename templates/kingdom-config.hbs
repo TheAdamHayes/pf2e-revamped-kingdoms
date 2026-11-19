@@ -39,6 +39,7 @@
       <button type="button" class="kc-danger" data-action="resetUniversalActions" title="Immediately resets and publishes Universal Actions from the module defaults — same fix, for Universal Actions">Reset Universal Actions</button>
       <button type="button" class="kc-danger" data-action="resetEvents" title="Immediately resets and publishes Events from the module defaults — fixes an event saved before tint color / condition tags / type existed">Reset Events</button>
       <span class="kc-utilities__spacer"></span>
+      <button type="button" data-action="addFactionPack" title="Leaders, rivals, ladders and favours for your factions, plus Oleg, the Sootscales, Restov and a set of events. Only fills in empty fields.">Add Faction Pack</button>
       <button type="button" data-action="exportBackup">Export Backup File</button>
       <button type="button" data-action="importBackup">Import Backup</button>
     </div>
@@ -154,6 +155,21 @@
           </div>
         </div>
       {{/each}}
+
+      <div class="kc-memories">
+        <h4 class="kc-memories__title">The kingdom remembers</h4>
+        {{#each memories}}
+          <div class="kc-memory">
+            <span>{{this.label}}</span>
+            <button type="button" class="icon-btn" data-action="forgetMemory" data-key="{{this.key}}" title="Forget this" aria-label="Forget this">&times;</button>
+          </div>
+        {{/each}}
+        {{#unless memories.length}}<p class="kc-hint">Nothing yet. Event choices add to this.</p>{{/unless}}
+        <div class="kc-memory-add">
+          <input type="text" id="memory-add-input" placeholder="Remember something by hand">
+          <button type="button" data-action="addMemory">Add</button>
+        </div>
+      </div>
     </div>
 
     <div class="kc-editor">
@@ -189,8 +205,8 @@
             {{/each}}
           </fieldset>
 
-          <div data-event-type-section="single" {{#unless editingEvent.isSingle}}hidden{{/unless}}>
-            <label>Body <span class="kc-field-hint">(HTML allowed)</span>
+          <div data-event-type-section="single,petition" {{#unless editingEvent.isSingleOrPetition}}hidden{{/unless}}>
+            <label>Body <span class="kc-field-hint">(HTML allowed. For a petition, say what they want done.)</span>
               <textarea id="event-body" rows="6">{{editingEvent.body}}</textarea>
             </label>
           </div>
@@ -250,6 +266,68 @@
           </div>
 
           <fieldset class="kc-event-conditions">
+            <legend>Who's in this event <span class="kc-field-hint">(their leaders' portraits and quotes show on the event screen)</span></legend>
+            {{#each editingEvent.featuredChoices}}
+              <label class="kc-checkbox">
+                <input type="checkbox" class="event-featured-checkbox" value="{{this.id}}" {{#if this.checked}}checked{{/if}}>
+                {{this.name}}
+              </label>
+            {{/each}}
+            {{#unless editingEvent.featuredChoices.length}}<p class="kc-hint">No factions yet.</p>{{/unless}}
+          </fieldset>
+
+          <div class="kc-abilities" data-event-type-section="single,multiscreen,questline" {{#if editingEvent.isPetition}}hidden{{/if}}>
+            <div class="kc-abilities__header">
+              <span>Choices <span class="kc-field-hint">(buttons on the event screen. Clicking one makes its changes straight away. Shown on the last page or stage.)</span></span>
+              <button type="button" data-action="addChoice">+ Add Choice</button>
+            </div>
+            <div id="choices-list">
+              {{#each editingEvent.choices}}
+                <div class="choice-row">
+                  <div class="config-row">
+                    <input type="text" class="choice-label" placeholder="Button text, e.g. Spare the oak" value="{{this.label}}">
+                    <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+                  </div>
+                  <input type="text" class="choice-text" placeholder="A line under the button (optional)" value="{{this.text}}">
+                  <div class="effect-block">
+                <div class="effect-list" data-effects="{{this.effectsJson}}"></div>
+                <button type="button" class="kc-mini-btn" data-action="addEffect">+ Add effect</button>
+                <p class="effect-readback"></p>
+              </div>
+                </div>
+              {{/each}}
+            </div>
+          </div>
+
+          <div class="kc-abilities" data-event-type-section="petition" {{#unless editingEvent.isPetition}}hidden{{/unless}}>
+            <div class="config-row">
+              <label class="kc-inline-label">Who's asking
+                <select id="petition-faction" data-value="{{editingEvent.petition.factionId}}">
+                  <option value="">Choose a faction</option>
+                  {{#each factions}}
+                    <option value="{{this.id}}">{{this.name}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <label class="kc-inline-label">Kingdom turns to get it done
+                <input type="number" id="petition-turns" min="1" value="{{editingEvent.petition.turns}}">
+              </label>
+            </div>
+            <div class="effect-block" id="petition-success">
+                <span class="kc-block-label">If it gets done</span>
+                <div class="effect-list" data-effects="{{editingEvent.petitionSuccessJson}}"></div>
+                <button type="button" class="kc-mini-btn" data-action="addEffect">+ Add effect</button>
+                <p class="effect-readback"></p>
+              </div>
+            <div class="effect-block" id="petition-failure">
+                <span class="kc-block-label">If it doesn't, or you turn them down</span>
+                <div class="effect-list" data-effects="{{editingEvent.petitionFailureJson}}"></div>
+                <button type="button" class="kc-mini-btn" data-action="addEffect">+ Add effect</button>
+                <p class="effect-readback"></p>
+              </div>
+          </div>
+
+          <fieldset class="kc-event-conditions">
             <legend>Random-pick conditions <span class="kc-field-hint">(matched against live kingdom state when the GM clicks "Pick Random" — leave all unchecked to make this event always eligible)</span></legend>
             {{#each editingEvent.conditionChoices}}
               <label class="kc-checkbox">
@@ -257,6 +335,22 @@
                 {{this.label}}
               </label>
             {{/each}}
+          </fieldset>
+
+          <fieldset class="kc-event-conditions">
+            <legend>Only when&hellip; <span class="kc-field-hint">(every line here has to be true for the event to come up at random)</span></legend>
+            <div class="condition-list" id="event-conditions-list" data-conditions="{{editingEvent.conditionsJson}}"></div>
+            <button type="button" class="kc-mini-btn" data-action="addCondition">+ Add a faction requirement</button>
+            <label>Only if the kingdom remembers <span class="kc-field-hint">(comma-separated)</span>
+              <input type="text" id="event-requires-memories" value="{{editingEvent.requiresMemoriesJoined}}" placeholder="felled the Old Mother Oak">
+            </label>
+            <label>Not if the kingdom remembers <span class="kc-field-hint">(comma-separated)</span>
+              <input type="text" id="event-forbids-memories" value="{{editingEvent.forbidsMemoriesJoined}}">
+            </label>
+            <label class="kc-checkbox">
+              <input type="checkbox" id="event-queue-only" {{#if editingEvent.queueOnly}}checked{{/if}}>
+              Never pick this at random <span class="kc-field-hint">(it only comes up through a choice, a petition or a faction's story)</span>
+            </label>
           </fieldset>
 
           <div class="kc-abilities" data-event-type-section="single,multiscreen" {{#if editingEvent.isQuestline}}hidden{{/if}}>
@@ -502,14 +596,109 @@
           </label>
           <label class="kc-checkbox">
             <input type="checkbox" id="faction-present" {{#if editingFaction.present}}checked{{/if}}>
-            Present in the kingdom
+            Present in the kingdom <span class="kc-field-hint">(for a patron: in contact with you)</span>
           </label>
-          <label>Effect at +3
-            <textarea id="faction-effect-high" rows="3">{{editingFaction.effectHigh}}</textarea>
+          <label>Kind of faction
+            <select id="faction-tier" data-value="{{editingFaction.tier}}">
+              {{#each tierChoices}}
+                <option value="{{this.id}}">{{this.label}}</option>
+              {{/each}}
+            </select>
           </label>
-          <label>Effect at -3
-            <textarea id="faction-effect-low" rows="3">{{editingFaction.effectLow}}</textarea>
+
+          <fieldset class="kc-event-conditions">
+            <legend>Leader</legend>
+            <div class="config-row">
+              <label class="kc-inline-label">Name
+                <input type="text" id="faction-leader-name" value="{{editingFaction.leaderName}}" placeholder="Hesta Barkwright">
+              </label>
+              <label class="kc-inline-label">Title
+                <input type="text" id="faction-leader-title" value="{{editingFaction.leaderTitle}}" placeholder="Warden of the Lodges">
+              </label>
+            </div>
+            <label>Portrait <span class="kc-field-hint">(leave empty to use the faction's own)</span>
+              <div class="kc-file-row">
+                <div class="kc-thumb" style="background-image:url('{{editingFaction.leaderPortrait}}');"></div>
+                <input type="text" id="faction-leader-portrait" value="{{editingFaction.leaderPortrait}}">
+                <button type="button" class="kc-browse-btn" data-action="browseImage" data-target="faction-leader-portrait">Browse</button>
+              </div>
+            </label>
+            <label>Something they'd say
+              <input type="text" id="faction-leader-quote" value="{{editingFaction.leaderQuote}}">
+            </label>
+          </fieldset>
+
+          <label>What they want
+            <input type="text" id="faction-agenda" value="{{editingFaction.agenda}}" placeholder="The forest stays standing.">
           </label>
+          <label>At odds with
+            <select id="faction-rival" data-value="{{editingFaction.rivalId}}">
+              <option value="">Nobody in particular</option>
+              {{#each editingFaction.rivalChoices}}
+                <option value="{{this.id}}">{{this.name}}</option>
+              {{/each}}
+            </select>
+          </label>
+
+          <fieldset class="kc-event-conditions kc-ladder">
+            <legend>What happens at each step <span class="kc-field-hint">(they add up: at -2 the -1 line applies too. Leave a step empty if nothing happens.)</span></legend>
+            {{#each editingFaction.ladderInputs}}
+              <label class="kc-ladder__row" data-step="{{this.step}}">
+                <b>{{this.label}}</b>
+                <input type="text" class="ladder-input" data-step="{{this.step}}" value="{{this.text}}">
+              </label>
+            {{/each}}
+          </fieldset>
+
+          <fieldset class="kc-event-conditions" data-tier-not="patron">
+            <legend>Favour <span class="kc-field-hint">(an action they lend you while they're at +1 or better. Leave the name empty for none.)</span></legend>
+            <div class="config-row">
+              <label class="kc-inline-label">Name
+                <input type="text" id="faction-favour-title" value="{{editingFaction.favourTitle}}" placeholder="Hunting Party">
+              </label>
+              <label class="kc-inline-label">Actions it takes
+                <input type="text" id="faction-favour-costs" value="{{editingFaction.favourCostsJoined}}" placeholder="1">
+              </label>
+            </div>
+            <label>What it does <span class="kc-field-hint">(HTML allowed)</span>
+              <textarea id="faction-favour-desc" rows="3">{{editingFaction.favourDescription}}</textarea>
+            </label>
+          </fieldset>
+
+          <fieldset class="kc-event-conditions" data-tier-only="patron">
+            <legend>Trade agreement</legend>
+            <div class="config-row">
+              <label class="kc-inline-label">KW each kingdom turn
+                <input type="number" id="faction-trade-kw" value="{{editingFaction.tradeKw}}">
+              </label>
+              <label class="kc-checkbox">
+                <input type="checkbox" id="faction-trade-active" {{#if editingFaction.tradeActive}}checked{{/if}}>
+                In place now
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="kc-event-conditions">
+            <legend>Their story <span class="kc-field-hint">(lined up in the event picker the first time they reach the top or bottom of their track)</span></legend>
+            <div class="config-row">
+              <label class="kc-inline-label">At the top
+                <select id="faction-story-high" data-value="{{editingFaction.storyHighEventId}}">
+                  <option value="">None</option>
+                  {{#each eventOptions}}
+                    <option value="{{this.id}}">{{this.title}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <label class="kc-inline-label">At the bottom
+                <select id="faction-story-low" data-value="{{editingFaction.storyLowEventId}}">
+                  <option value="">None</option>
+                  {{#each eventOptions}}
+                    <option value="{{this.id}}">{{this.title}}</option>
+                  {{/each}}
+                </select>
+              </label>
+            </div>
+          </fieldset>
 
           <div class="kc-form-actions">
             <button type="button" class="kc-primary" data-action="saveFaction">Save Faction</button>
@@ -545,6 +734,21 @@
         <label class="kc-inline-label">Proposed happiness
           <input type="number" class="ability-happiness-effect" value="0">
         </label>
+      </div>
+    </div>
+  </template>
+
+  <template id="choice-row-template">
+    <div class="choice-row">
+      <div class="config-row">
+        <input type="text" class="choice-label" placeholder="Button text, e.g. Spare the oak">
+        <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+      </div>
+      <input type="text" class="choice-text" placeholder="A line under the button (optional)">
+      <div class="effect-block">
+        <div class="effect-list" data-effects="[]"></div>
+        <button type="button" class="kc-mini-btn" data-action="addEffect">+ Add effect</button>
+        <p class="effect-readback"></p>
       </div>
     </div>
   </template>

@@ -22,9 +22,24 @@ import {
   BLANK_IMAGE,
   EVENT_CONDITIONS,
   EVENT_TYPES,
-  MODULE_ID
+  MODULE_ID,
+  escapeHTML,
+  getMemories,
+  setMemories,
+  getKingdomTurn
 } from "./data.js";
 import { refreshAllKingdomApps, registerModuleWindow, unregisterModuleWindow } from "./kingdom.js";
+import {
+  FACTION_TIERS,
+  EFFECT_TYPES,
+  CONDITION_OPS,
+  describeEffects,
+  normalizeEffect,
+  tierOf,
+  clampHappiness,
+  memoryKey
+} from "./factions.js";
+import { PACK_FACTIONS, PACK_EVENTS, guessMatch, applyPack } from "./faction-pack.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -96,7 +111,13 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
       pickColorEyedropper: KingdomConfigApp.#onPickColorEyedropper,
       resetDomains: KingdomConfigApp.#onResetDomains,
       resetUniversalActions: KingdomConfigApp.#onResetUniversalActions,
-      resetEvents: KingdomConfigApp.#onResetEvents
+      resetEvents: KingdomConfigApp.#onResetEvents,
+      addChoice: KingdomConfigApp.#onAddChoice,
+      addEffect: KingdomConfigApp.#onAddEffect,
+      addCondition: KingdomConfigApp.#onAddCondition,
+      forgetMemory: KingdomConfigApp.#onForgetMemory,
+      addMemory: KingdomConfigApp.#onAddMemory,
+      addFactionPack: KingdomConfigApp.#onAddFactionPack
     }
   };
 
@@ -176,6 +197,9 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
       toBuildingName: this.#buildings.find((b) => b.id === t.toBuildingId)?.name ?? "(deleted building)"
     }));
     context.factions = this.#factions;
+    context.tierChoices = FACTION_TIERS;
+    context.eventOptions = this.#events.map((e) => ({ id: e.id, title: e.title || "(untitled)" }));
+    context.memories = getMemories().filter((m) => !m.hidden);
 
     context.editingDomain = this.#editingDomain
       ? {
@@ -205,7 +229,21 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
             checked: (this.#editingEvent.conditions ?? []).includes(c.id)
           })),
           pages: this.#editingEvent.pages ?? [],
-          stages: this.#editingEvent.stages ?? []
+          stages: this.#editingEvent.stages ?? [],
+          isPetition: this.#editingEvent.type === "petition",
+          isSingleOrPetition: ["single", "petition"].includes(this.#editingEvent.type ?? "single"),
+          featuredChoices: this.#factions.map((f) => ({
+            id: f.id,
+            name: f.name,
+            checked: (this.#editingEvent.featuredFactionIds ?? []).includes(f.id)
+          })),
+          choices: (this.#editingEvent.choices ?? []).map((c) => ({ ...c, effectsJson: JSON.stringify(c.effects ?? []) })),
+          petition: { factionId: "", turns: 2, ...(this.#editingEvent.petition ?? {}) },
+          petitionSuccessJson: JSON.stringify(this.#editingEvent.petition?.success ?? []),
+          petitionFailureJson: JSON.stringify(this.#editingEvent.petition?.failure ?? []),
+          conditionsJson: JSON.stringify(this.#editingEvent.factionConditions ?? []),
+          requiresMemoriesJoined: (this.#editingEvent.requiresMemories ?? []).join(", "),
+          forbidsMemoriesJoined: (this.#editingEvent.forbidsMemories ?? []).join(", ")
         }
       : null;
     context.editingBuilding = this.#editingBuilding
@@ -230,7 +268,7 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
           fromBuildingIcon: this.#buildings.find((b) => b.id === this.#editingTransformation.fromBuildingId)?.tileImage ?? ""
         }
       : null;
-    context.editingFaction = this.#editingFaction;
+    context.editingFaction = this.#editingFaction ? this.#prepareFactionEditor(this.#editingFaction) : null;
 
     return context;
   }
@@ -256,6 +294,14 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
       const select = el.querySelector(".building-placement-mode");
       if (select) select.value = el.dataset.placementMode || "single";
     }
+
+    // Selects that need a saved value picked: the template puts it in
+    // data-value and it's applied here (Handlebars can't easily do it).
+    for (const select of this.element.querySelectorAll("select[data-value]")) {
+      select.value = select.dataset.value ?? "";
+    }
+    this.#mountEffectEditors();
+    this.#wireFactionTier();
 
     // Keeps every image-path thumbnail live as the GM types a path
     // directly (Browse also updates it, but only on that path) — same
@@ -551,6 +597,37 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
       if (stageTitle || stageArt || stageBody) stages.push({ title: stageTitle, art: stageArt, tintColor: stageTint, body: stageBody });
     }
 
+    const featuredFactionIds = [...root.querySelectorAll(".event-featured-checkbox:checked")].map((el) => el.value);
+    const choices = [];
+    for (const row of root.querySelectorAll("#choices-list > .choice-row")) {
+      const label = row.querySelector(".choice-label")?.value.trim() ?? "";
+      const text = row.querySelector(".choice-text")?.value.trim() ?? "";
+      const effects = this.#readEffects(row.querySelector(".effect-list"));
+      if (label || text || effects.length) choices.push({ label, text, effects });
+    }
+    const factionConditions = this.#readConditions(root.querySelector("#event-conditions-list"));
+    const splitList = (sel) =>
+      (root.querySelector(sel)?.value ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const requiresMemories = splitList("#event-requires-memories");
+    const forbidsMemories = splitList("#event-forbids-memories");
+    const queueOnly = !!root.querySelector("#event-queue-only")?.checked;
+    let petition = null;
+    if (type === "petition") {
+      petition = {
+        factionId: root.querySelector("#petition-faction")?.value || null,
+        turns: Math.max(1, Number(root.querySelector("#petition-turns")?.value) || 2),
+        success: this.#readEffects(root.querySelector("#petition-success .effect-list")),
+        failure: this.#readEffects(root.querySelector("#petition-failure .effect-list"))
+      };
+      if (!petition.factionId) {
+        ui.notifications.warn("A petition needs a faction to be asking for it.");
+        return false;
+      }
+    }
+
     if (type === "multiscreen" && !pages.length) {
       ui.notifications.warn("A multi-screen event needs at least one page.");
       return false;
@@ -561,7 +638,29 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
     }
 
     const id = this.#editingEvent?.id ?? foundry.utils.randomID();
-    const eventRecord = { id, title, art, tintColor, category, type, conditions, body, outcomes, pages, stages };
+    // Spread the saved record first so fields this form doesn't show are kept.
+    const previous = this.#events.find((e) => e.id === id) ?? {};
+    const eventRecord = {
+      ...previous,
+      id,
+      title,
+      art,
+      tintColor,
+      category,
+      type,
+      conditions,
+      body,
+      outcomes,
+      pages,
+      stages,
+      featuredFactionIds,
+      choices,
+      factionConditions,
+      requiresMemories,
+      forbidsMemories,
+      queueOnly,
+      petition
+    };
 
     const idx = this.#events.findIndex((e) => e.id === id);
     if (idx === -1) this.#events.push(eventRecord);
@@ -578,7 +677,8 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
   /* ---------------------------------------------------------------- */
 
   static #onRemoveRow(event, target) {
-    target.closest(".ability-row, .outcome-row, .page-row, .stage-row")?.remove();
+    target.closest(".effect-row, .condition-row, .choice-row, .ability-row, .outcome-row, .page-row, .stage-row")?.remove();
+    this.#updateReadbacks();
   }
 
   /* ---------------------------------------------------------------- */
@@ -1071,7 +1171,9 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
       happiness: 0,
       present: false,
       effectHigh: "",
-      effectLow: ""
+      effectLow: "",
+      tier: "main",
+      ladder: {}
     };
     this.render();
   }
@@ -1113,19 +1215,52 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
 
     const portrait = root.querySelector("#faction-portrait")?.value.trim() ?? "";
     const present = root.querySelector("#faction-present")?.checked ?? false;
-    const effectHigh = root.querySelector("#faction-effect-high")?.value.trim() ?? "";
-    const effectLow = root.querySelector("#faction-effect-low")?.value.trim() ?? "";
+    const val = (sel) => root.querySelector(sel)?.value.trim() ?? "";
+    const tier = FACTION_TIERS.some((t) => t.id === val("#faction-tier")) ? val("#faction-tier") : "main";
+    const range = FACTION_TIERS.find((t) => t.id === tier);
+    const ladder = {};
+    for (const input of root.querySelectorAll(".ladder-input")) {
+      const step = Number(input.dataset.step);
+      const text = input.value.trim();
+      if (text && step >= range.min && step <= range.max) ladder[step] = text;
+    }
+    const favourTitle = val("#faction-favour-title");
+    const favourCosts = val("#faction-favour-costs")
+      .split(",")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
 
     const id = this.#editingFaction?.id ?? foundry.utils.randomID();
     const existing = this.#factions.find((f) => f.id === id);
     const faction = {
+      // Keep anything this form doesn't show (taxes are stored elsewhere,
+      // but future fields might not be).
+      ...(existing ?? {}),
       id,
       name,
       portrait,
       present,
-      happiness: existing?.happiness ?? 0,
-      effectHigh,
-      effectLow
+      tier,
+      happiness: clampHappiness({ tier }, existing?.happiness ?? 0),
+      // The old +3 / -3 text stays in step with the ladder's ends, so
+      // anything still reading those fields sees the same words.
+      effectHigh: ladder[range.max] ?? "",
+      effectLow: ladder[range.min] ?? "",
+      ladder,
+      leaderName: val("#faction-leader-name"),
+      leaderTitle: val("#faction-leader-title"),
+      leaderPortrait: val("#faction-leader-portrait"),
+      leaderQuote: val("#faction-leader-quote"),
+      agenda: val("#faction-agenda"),
+      rivalId: val("#faction-rival") || null,
+      favour:
+        favourTitle && tier !== "patron"
+          ? { title: favourTitle, costs: favourCosts.length ? favourCosts : [1], description: val("#faction-favour-desc") }
+          : null,
+      tradeKw: Number(val("#faction-trade-kw")) || 0,
+      tradeActive: !!root.querySelector("#faction-trade-active")?.checked,
+      storyHighEventId: val("#faction-story-high") || null,
+      storyLowEventId: val("#faction-story-low") || null
     };
 
     const idx = this.#factions.findIndex((f) => f.id === id);
@@ -1141,5 +1276,285 @@ export class KingdomConfigApp extends HandlebarsApplicationMixin(ApplicationV2) 
   }
 
   /* ---------------------------------------------------------------- */
+  /* Faction editor                                                     */
+  /* ---------------------------------------------------------------- */
 
+  #prepareFactionEditor(f) {
+    const tier = tierOf(f);
+    const ladder = { ...(f.ladder ?? {}) };
+    if (!Object.values(ladder).some(Boolean)) {
+      if (f.effectHigh) ladder[tier.max] = f.effectHigh;
+      if (f.effectLow) ladder[tier.min] = f.effectLow;
+    }
+    return {
+      ...f,
+      tier: tier.id,
+      ladderInputs: [3, 2, 1, -1, -2, -3].map((s) => ({ step: s, label: s > 0 ? `+${s}` : `${s}`, text: ladder[s] ?? "" })),
+      rivalChoices: this.#factions.filter((x) => x.id !== f.id).map((x) => ({ id: x.id, name: x.name })),
+      favourTitle: f.favour?.title ?? "",
+      favourCostsJoined: (f.favour?.costs ?? [1]).join(","),
+      favourDescription: f.favour?.description ?? "",
+      tradeKw: f.tradeKw ?? 0
+    };
+  }
+
+  /** Shows only the ladder steps and sections that make sense for the
+   *  kind of faction picked, without a re-render (so typing isn't lost). */
+  #wireFactionTier() {
+    const select = this.element.querySelector("#faction-tier");
+    if (!select) return;
+    const apply = () => {
+      const tier = FACTION_TIERS.find((t) => t.id === select.value) ?? FACTION_TIERS[0];
+      for (const row of this.element.querySelectorAll(".kc-ladder__row")) {
+        const s = Number(row.dataset.step);
+        row.hidden = s < tier.min || s > tier.max;
+      }
+      for (const el of this.element.querySelectorAll("[data-tier-only]")) el.hidden = el.dataset.tierOnly !== tier.id;
+      for (const el of this.element.querySelectorAll("[data-tier-not]")) el.hidden = el.dataset.tierNot === tier.id;
+    };
+    select.addEventListener("change", apply);
+    apply();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Effects and conditions editors                                     */
+  /* Rows are built here from JSON the template hands over, so the one  */
+  /* builder serves both saved rows and "+ Add" buttons.                */
+  /* ---------------------------------------------------------------- */
+
+  #option(value, label, selected) {
+    const o = document.createElement("option");
+    o.value = value ?? "";
+    o.textContent = label;
+    if (selected) o.selected = true;
+    return o;
+  }
+
+  #buildEffectRow(effect = {}) {
+    const e = normalizeEffect(effect);
+    const row = document.createElement("div");
+    row.className = "effect-row";
+
+    const type = document.createElement("select");
+    type.className = "ef-type";
+    for (const t of EFFECT_TYPES) type.append(this.#option(t.id, t.label, t.id === e.type));
+
+    const faction = document.createElement("select");
+    faction.className = "ef-faction";
+    faction.append(this.#option("", "Choose a faction", !e.factionId));
+    for (const f of this.#factions) faction.append(this.#option(f.id, f.name, f.id === e.factionId));
+
+    const amount = document.createElement("input");
+    amount.type = "number";
+    amount.className = "ef-amount";
+    amount.value = String(e.amount);
+    amount.title = "Use a minus sign to take away, e.g. -2";
+
+    const text = document.createElement("input");
+    text.type = "text";
+    text.className = "ef-text";
+    text.value = e.text;
+    text.placeholder = "e.g. spared the Old Mother Oak";
+
+    const eventSel = document.createElement("select");
+    eventSel.className = "ef-event";
+    eventSel.append(this.#option("", "Choose an event", !e.eventId));
+    for (const ev of this.#events) eventSel.append(this.#option(ev.id, ev.title || "(untitled)", ev.id === e.eventId));
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.dataset.action = "removeRow";
+    remove.textContent = "\u00d7";
+    remove.setAttribute("aria-label", "Remove this effect");
+
+    const setFields = () => {
+      row.dataset.fields = (EFFECT_TYPES.find((t) => t.id === type.value)?.fields ?? []).join(" ");
+    };
+    type.addEventListener("change", setFields);
+    setFields();
+
+    row.append(type, faction, amount, text, eventSel, remove);
+    return row;
+  }
+
+  #buildConditionRow(cond = {}) {
+    const row = document.createElement("div");
+    row.className = "condition-row";
+    const faction = document.createElement("select");
+    faction.className = "cond-faction";
+    faction.append(this.#option("", "Choose a faction", !cond.factionId));
+    for (const f of this.#factions) faction.append(this.#option(f.id, f.name, f.id === cond.factionId));
+    const op = document.createElement("select");
+    op.className = "cond-op";
+    for (const o of CONDITION_OPS) op.append(this.#option(o.id, o.label, o.id === (cond.op ?? "atLeast")));
+    const value = document.createElement("input");
+    value.type = "number";
+    value.className = "cond-value";
+    value.value = String(cond.value ?? 0);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.dataset.action = "removeRow";
+    remove.textContent = "\u00d7";
+    const setOp = () => (row.dataset.op = op.value);
+    op.addEventListener("change", setOp);
+    setOp();
+    row.append(faction, op, value, remove);
+    return row;
+  }
+
+  #readEffects(list) {
+    if (!list) return [];
+    return [...list.querySelectorAll(":scope > .effect-row")].map((row) =>
+      normalizeEffect({
+        type: row.querySelector(".ef-type")?.value,
+        factionId: row.querySelector(".ef-faction")?.value || null,
+        amount: row.querySelector(".ef-amount")?.value,
+        text: row.querySelector(".ef-text")?.value,
+        eventId: row.querySelector(".ef-event")?.value || null
+      })
+    );
+  }
+
+  #readConditions(list) {
+    if (!list) return [];
+    return [...list.querySelectorAll(":scope > .condition-row")]
+      .map((row) => ({
+        factionId: row.querySelector(".cond-faction")?.value || null,
+        op: row.querySelector(".cond-op")?.value || "atLeast",
+        value: Number(row.querySelector(".cond-value")?.value) || 0
+      }))
+      .filter((c) => c.factionId);
+  }
+
+  #parseJson(text, fallback) {
+    try {
+      const v = JSON.parse(text ?? "");
+      return Array.isArray(v) ? v : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  #mountEffectEditors(scope = this.element) {
+    for (const list of scope.querySelectorAll(".effect-list[data-effects]")) {
+      for (const e of this.#parseJson(list.dataset.effects, [])) list.append(this.#buildEffectRow(e));
+      delete list.dataset.effects;
+    }
+    for (const list of scope.querySelectorAll(".condition-list[data-conditions]")) {
+      for (const c of this.#parseJson(list.dataset.conditions, [])) list.append(this.#buildConditionRow(c));
+      delete list.dataset.conditions;
+    }
+    const screen = this.element.querySelector(".kc-screen");
+    if (screen && !screen.dataset.readbacksWired) {
+      screen.dataset.readbacksWired = "1";
+      const update = (event) => {
+        if (event.target.closest?.(".effect-block")) this.#updateReadbacks();
+      };
+      screen.addEventListener("input", update);
+      screen.addEventListener("change", update);
+    }
+    this.#updateReadbacks();
+  }
+
+  /** The sentence under each set of effects, e.g. "+1 happiness with The
+   *  Woodsmen, -2 KW." — so the GM can see what a choice will do. */
+  #updateReadbacks() {
+    for (const block of this.element.querySelectorAll(".effect-block")) {
+      const out = block.querySelector(":scope > .effect-readback");
+      if (!out) continue;
+      out.textContent = describeEffects(this.#readEffects(block.querySelector(":scope > .effect-list")), {
+        factions: this.#factions,
+        events: this.#events
+      });
+    }
+  }
+
+  static #onAddChoice() {
+    const template = this.element.querySelector("#choice-row-template");
+    const container = this.element.querySelector("#choices-list");
+    if (!template || !container) return;
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector(".choice-row");
+    container.appendChild(fragment);
+    if (row) this.#mountEffectEditors(row);
+  }
+
+  static #onAddEffect(event, target) {
+    const list = target.closest(".effect-block")?.querySelector(":scope > .effect-list");
+    if (!list) return;
+    list.append(this.#buildEffectRow({ type: "happiness" }));
+    this.#updateReadbacks();
+  }
+
+  static #onAddCondition() {
+    const list = this.element.querySelector("#event-conditions-list");
+    if (list) list.append(this.#buildConditionRow({ op: "atLeast", value: 1 }));
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Memories                                                           */
+  /* ---------------------------------------------------------------- */
+
+  static async #onForgetMemory(event, target) {
+    const key = target.dataset.key;
+    await setMemories(getMemories().filter((m) => m.key !== key));
+    KingdomConfigApp.#broadcastChange();
+    this.render();
+  }
+
+  static async #onAddMemory() {
+    const input = this.element.querySelector("#memory-add-input");
+    const text = input?.value.trim();
+    if (!text) return;
+    const memories = getMemories();
+    if (!memories.some((m) => m.key === memoryKey(text))) {
+      memories.push({ key: memoryKey(text), label: text, turn: getKingdomTurn() });
+      await setMemories(memories);
+    }
+    KingdomConfigApp.#broadcastChange();
+    this.render();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Faction Pack                                                       */
+  /* ---------------------------------------------------------------- */
+
+  static async #onAddFactionPack() {
+    if (!game.user.isGM) return;
+    const factions = this.#factions;
+    const tierLabel = { main: "main faction", minor: "minor faction", patron: "patron" };
+    const rows = PACK_FACTIONS.map((pf) => {
+      const guess = guessMatch(pf, factions);
+      const options = [
+        `<option value="new"${guess === "new" ? " selected" : ""}>Add it as a new faction</option>`,
+        `<option value="skip">Leave it out</option>`,
+        ...factions.map(
+          (f) => `<option value="${escapeHTML(f.id)}"${guess === f.id ? " selected" : ""}>Fill in my "${escapeHTML(f.name)}"</option>`
+        )
+      ].join("");
+      return `<div class="form-group"><label>${escapeHTML(pf.data.name)} <span class="kc-field-hint">(${tierLabel[pf.data.tier]}, led by ${escapeHTML(pf.data.leaderName)})</span></label><select name="${pf.key}">${options}</select></div>`;
+    }).join("");
+
+    const mapping = await foundry.applications.api.DialogV2.prompt({
+      window: { title: "Add the Faction Pack" },
+      classes: ["pf2e-rk-dialog"],
+      position: { width: 560 },
+      content: `<p>This gives your factions leaders, rivals, ladders and favours, and adds ${PACK_EVENTS.length} events, petitions and faction stories.</p><p>It only fills in fields that are empty, so anything you've already written stays as it is. New factions start outside the kingdom until an event (or you) brings them in.</p>${rows}`,
+      ok: {
+        label: "Add it",
+        callback: (event, button) => Object.fromEntries(PACK_FACTIONS.map((pf) => [pf.key, button.form.elements[pf.key]?.value ?? "new"]))
+      },
+      rejectClose: false
+    }).catch(() => null);
+    if (!mapping) return;
+
+    const result = await applyPack(mapping);
+    KingdomConfigApp.#broadcastChange();
+    this.render();
+    ui.notifications.info(
+      `Faction Pack added: ${result.factionsFilled} faction(s) filled in, ${result.factionsAdded} new, ${result.eventsAdded} event(s) added.`
+    );
+  }
 }

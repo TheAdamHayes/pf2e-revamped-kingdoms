@@ -32,9 +32,35 @@ import {
   TAX_LEVELS,
   EVENT_CONDITIONS,
   EVENT_TYPES,
-  MODULE_ID
+  MODULE_ID,
+  getPetitions,
+  getQueuedEvents,
+  setQueuedEvents,
+  getMemories,
+  getActiveEventChoice,
+  setActiveEventChoice,
+  getKingdomTurn,
+  setKingdomTurn
 } from "./data.js";
 import { KingdomConfigApp } from "./kingdom-config.js";
+import {
+  tierOf,
+  clampHappiness,
+  moodLabel,
+  ladderRows,
+  favourAvailable,
+  favourActions,
+  tradeIncome,
+  tradeIncomeRows,
+  describeEffects,
+  applyEffects,
+  eventConditionsMet,
+  acceptPetition,
+  resolvePetition,
+  tickPetitions,
+  checkStoryArcs,
+  whisperGM
+} from "./factions.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -205,6 +231,11 @@ function applyScaledTaxEffect(faction, level) {
 }
 
 function isEventEligible(eventDef, state) {
+  // Faction and memory requirements have to hold; a petition already
+  // pinned on the board can't come up again until it's dealt with.
+  if (state.pinnedEventIds?.has(eventDef.id)) return false;
+  if (eventDef.queueOnly) return false; // only comes up through a choice or a faction's story
+  if (!eventConditionsMet(eventDef, { factions: state.factions, memories: state.memories ?? [] })) return false;
   const tags = eventDef.conditions ?? [];
   if (!tags.length || tags.includes("always")) return true;
   return tags.some((tag) => evaluateEventCondition(tag, state));
@@ -227,6 +258,7 @@ function refreshEntryInteractionData(entry) {
   const domain = getDomains().find((d) => norm(d.name) === norm(entry.domain));
   let live = domain?.abilities?.find((a) => norm(a.title) === norm(entry.action));
   if (!live) live = getUniversalActions().find((a) => norm(a.title) === norm(entry.action));
+  if (!live) live = favourActions().find((a) => norm(a.title) === norm(entry.action));
 
   // This ran on every render and logged every time; now it only speaks
   // up when the lookup genuinely fails, which is the case worth knowing.
@@ -319,7 +351,9 @@ export function buildResolveEntry(domainId, title, cost) {
   if (!domain) return null;
   if (domain.researchLocked && !isDomainResearchUnlocked(domain.id)) return null;
   const ability =
-    (domain.abilities ?? []).find((a) => a.title === title) ?? getUniversalActions().find((a) => a.title === title);
+    (domain.abilities ?? []).find((a) => a.title === title) ??
+    getUniversalActions().find((a) => a.title === title) ??
+    favourActions().find((a) => a.title === title);
   if (!ability) return null;
   const costs = ability.costs?.length ? ability.costs : [1];
   const chosenCost = costs.includes(cost) ? cost : costs[0];
@@ -452,7 +486,13 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       eventNextPage: RevampedKingdomApp.#onEventNextPage,
       advanceQuestline: RevampedKingdomApp.#onAdvanceQuestline,
       postPlayerEffect: RevampedKingdomApp.#onPostPlayerEffect,
-      postCustomEffect: RevampedKingdomApp.#onPostCustomEffect
+      postCustomEffect: RevampedKingdomApp.#onPostCustomEffect,
+      chooseEventChoice: RevampedKingdomApp.#onChooseEventChoice,
+      acceptPetition: RevampedKingdomApp.#onAcceptPetition,
+      refusePetition: RevampedKingdomApp.#onRefusePetition,
+      petitionDone: RevampedKingdomApp.#onPetitionDone,
+      petitionDrop: RevampedKingdomApp.#onPetitionDrop,
+      dismissQueued: RevampedKingdomApp.#onDismissQueued
     }
   };
 
@@ -551,18 +591,36 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     const factionTaxes = getFactionTaxes();
-    const factions = getFactions().map((faction, i) => ({
-      ...faction,
-      slot: i + 1,
-      topPercent: this.#happinessToPercent(faction.happiness),
-      pendingChanges: pendingHappinessByFaction.get(faction.id) ?? [],
-      taxLevel: factionTaxes[faction.id] ?? null,
-      taxLabel: factionTaxes[faction.id] ? TAX_LEVELS[factionTaxes[faction.id]]?.label : "Not set"
-    }));
-    const presentFactions = factions.filter((f) => f.present);
+    const rawFactions = getFactions();
+    const nameById = new Map(rawFactions.map((f) => [f.id, f.name]));
+    const factions = rawFactions.map((faction, i) => {
+      const tier = tierOf(faction).id;
+      const rows = ladderRows(faction);
+      return {
+        ...faction,
+        slot: i + 1,
+        tier,
+        isMain: tier === "main",
+        isMinor: tier === "minor",
+        isPatron: tier === "patron",
+        mood: moodLabel(faction),
+        ladderRows: rows,
+        hasLadder: rows.length > 0,
+        rivalName: faction.rivalId ? nameById.get(faction.rivalId) ?? null : null,
+        favourOn: favourAvailable(faction),
+        topPercent: this.#happinessToPercent(faction.happiness),
+        pendingChanges: pendingHappinessByFaction.get(faction.id) ?? [],
+        taxLevel: factionTaxes[faction.id] ?? null,
+        taxLabel: factionTaxes[faction.id] ? TAX_LEVELS[factionTaxes[faction.id]]?.label : "Not set"
+      };
+    });
+    // Main factions keep the crests, taxes and levies exactly as before;
+    // minor factions and patrons get their own smaller cards.
+    const presentFactions = factions.filter((f) => f.present && f.isMain);
+    const allPresentFactions = factions.filter((f) => f.present);
     const absentFactions = factions.filter((f) => !f.present);
 
-    const presentIds = new Set(presentFactions.map((f) => f.id));
+    const presentIds = new Set(allPresentFactions.map((f) => f.id));
     const buildingsBrowser = buildingDefs.map((b) => ({
       ...b,
       traitsJoined: (b.traits ?? []).join(", "),
@@ -587,6 +645,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     context.showEventPicker = !context.currentEvent;
 
     const ce = context.currentEvent;
+    if (ce) this.#decorateEvent(ce, rawFactions, events);
     const eventKey = ce ? `${ce.id}|${ce.pageIndex ?? ""}|${ce.stageIndex ?? ""}` : null;
     context.eventSettled = !!eventKey && eventKey === this.#lastEventKey;
     this.#lastEventKey = eventKey;
@@ -616,11 +675,34 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       if (!eventCategoryMap.has(cat)) eventCategoryMap.set(cat, []);
       eventCategoryMap.get(cat).push(e);
     }
+    context.queuedEvents = getQueuedEvents()
+      .map((q) => ({ ...q, event: context.allEvents.find((e) => e.id === q.eventId) }))
+      .filter((q) => q.event);
     context.eventCategories = [...eventCategoryMap.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([name, evts]) => ({ name, events: evts }));
     context.factions = presentFactions;
+    context.minorFactions = allPresentFactions.filter((f) => f.isMinor);
+    context.patronFactions = allPresentFactions.filter((f) => f.isPatron);
+    context.allPresentFactions = allPresentFactions;
     context.absentFactions = absentFactions;
+    context.kingdomTurn = getKingdomTurn();
+
+    // Petitions pinned on the Decide screen
+    const factionById = new Map(rawFactions.map((f) => [f.id, f]));
+    context.petitions = getPetitions().map((p) => {
+      const f = factionById.get(p.factionId);
+      return {
+        ...p,
+        factionName: f?.name ?? "",
+        portrait: f?.leaderPortrait || f?.portrait || "",
+        dueText: p.turnsLeft <= 1 ? "Due this turn" : `${p.turnsLeft} turns left`,
+        urgent: p.turnsLeft <= 1,
+        successText: describeEffects(p.success, { factions: rawFactions, events }),
+        failureText: describeEffects(p.failure, { factions: rawFactions, events })
+      };
+    });
+    context.hasPetitions = context.petitions.length > 0;
     context.buildingsBrowser = buildingsBrowser;
     context.atWar = getAtWar();
     context.festivalCost = getFestivalCost();
@@ -629,7 +711,8 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     context.kw = kingdomState.kw;
     context.kwDeltaManual = kingdomState.kwDelta;
     context.kwBuildingIncome = buildingIncome;
-    context.kwDelta = kingdomState.kwDelta + buildingIncome;
+    context.tradeIncomeBreakdown = tradeIncomeRows(rawFactions);
+    context.kwDelta = kingdomState.kwDelta + buildingIncome + tradeIncome(rawFactions);
     context.buildingIncomeBreakdown = buildingIncomeBreakdown;
     context.pendingKwEntries = resolveEntries.filter((e) => e.kwEffect);
 
@@ -677,6 +760,54 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     context.showEvent = !overlayOpen && this.#activeTab === "event";
 
     return context;
+  }
+
+  /** Adds the faction side of an event to its display model: the leaders
+   *  it features, its choices (and which one was taken), and for a
+   *  petition, who's asking and what rides on it. */
+  #decorateEvent(ev, factions, events) {
+    const byId = new Map(factions.map((f) => [f.id, f]));
+    ev.featured = (ev.featuredFactionIds ?? [])
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((f) => ({
+        name: f.leaderName || f.name,
+        role: f.leaderName ? f.leaderTitle || f.name : "",
+        portrait: f.leaderPortrait || f.portrait || "",
+        quote: f.leaderQuote || ""
+      }));
+    ev.hasFeatured = ev.featured.length > 0;
+
+    const atEnd = ev.isSingle || ev.isLastPage || ev.isLastStage || ev.type === "petition";
+    const chosen = getActiveEventChoice();
+    const choiceKey = `${ev.id}|${ev.stageIndex ?? ""}`;
+    const chosenIndex = chosen?.key === choiceKey ? chosen.index : null;
+    ev.choiceKey = choiceKey;
+    ev.choicesView = (ev.choices ?? []).map((c, i) => ({
+      index: i,
+      label: c.label || `Choice ${i + 1}`,
+      text: c.text ?? "",
+      effectsText: describeEffects(c.effects ?? [], { factions, events }),
+      chosen: chosenIndex === i,
+      passedOver: chosenIndex !== null && chosenIndex !== i
+    }));
+    ev.showChoices = atEnd && ev.choicesView.length > 0;
+    ev.choiceMade = chosenIndex !== null;
+
+    if (ev.type === "petition") {
+      const p = ev.petition ?? {};
+      const asker = byId.get(p.factionId);
+      ev.isPetition = true;
+      ev.petitionFrom = asker?.name ?? "";
+      ev.petitionTurns = Math.max(1, Number(p.turns) || 2);
+      ev.petitionDueText =
+        ev.petitionTurns === 1 ? "You have 1 kingdom turn to see it done." : `You have ${ev.petitionTurns} kingdom turns to see it done.`;
+      ev.petitionSuccessText = describeEffects(p.success ?? [], { factions, events });
+      ev.petitionFailureText = describeEffects(p.failure ?? [], { factions, events });
+      ev.petitionPinned = getPetitions().some((x) => x.eventId === ev.id);
+      ev.petitionRefused = chosenIndex === "refused";
+      ev.petitionOpen = !ev.petitionPinned && !ev.petitionRefused;
+    }
   }
 
   #costDisplay(costs) {
@@ -945,11 +1076,11 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const faction = factions.find((f) => f.id === id);
     if (!faction) return;
 
-    faction.happiness = Math.max(HAPPINESS_MIN, Math.min(HAPPINESS_MAX, faction.happiness + delta));
+    faction.happiness = clampHappiness(faction, faction.happiness + delta);
     await setFactions(factions);
 
     // Patch this client's DOM directly instead of a full re-render —
-    // only the number and the crest position actually changed.
+    // a full render would close the faction menu you're working in.
     this.#patchFactionDisplay(faction);
     broadcastRefresh();
   }
@@ -961,6 +1092,16 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
 
     const crest = root.querySelector(`.reputation-panel__crest[data-faction-id="${faction.id}"]`);
     if (crest) crest.style.top = `${this.#happinessToPercent(faction.happiness)}%`;
+
+    const card = root.querySelector(`.faction-menu__card[data-faction-id="${faction.id}"]`);
+    if (!card) return;
+    const moodEl = card.querySelector("[data-mood]");
+    if (moodEl) moodEl.textContent = moodLabel(faction) ?? "";
+    const h = faction.happiness;
+    for (const row of card.querySelectorAll("[data-ladder-step]")) {
+      const s = Number(row.dataset.ladderStep);
+      row.classList.toggle("is-active", (s > 0 && h >= s) || (s < 0 && h <= s));
+    }
   }
 
   static async #onToggleFactionPresent(event, target) {
@@ -1014,7 +1155,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const pool = root.querySelector("#select-pool");
     pool.innerHTML = "";
     const universal = getUniversalActions();
-    for (const ability of [...domain.abilities, ...universal]) {
+    for (const ability of [...domain.abilities, ...universal, ...favourActions()]) {
       pool.appendChild(this.#buildActionChip(ability));
     }
     this.#wireSelectPool();
@@ -1470,7 +1611,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     const factions = getFactions();
     const faction = factions.find((f) => f.id === factionId);
     if (faction) {
-      faction.happiness = Math.max(HAPPINESS_MIN, Math.min(HAPPINESS_MAX, faction.happiness + amount));
+      faction.happiness = clampHappiness(faction, faction.happiness + amount);
       await setFactions(factions);
     }
 
@@ -1718,6 +1859,9 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
     if (!id) return;
     await setActiveEventId(id);
     await setActiveEventPage(0);
+    await setActiveEventChoice({});
+    const queue = getQueuedEvents();
+    if (queue.some((q) => q.eventId === id)) await setQueuedEvents(queue.filter((q) => q.eventId !== id));
     refreshAllKingdomApps();
     broadcastRefresh();
   }
@@ -1732,14 +1876,26 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
 
     const kingdomState = getKingdomState();
     const factions = getFactions();
-    const state = { kw: kingdomState.kw, factions, atWar: getAtWar() };
+    const memories = getMemories();
+    const pinnedEventIds = new Set(getPetitions().map((p) => p.eventId));
+    const state = { kw: kingdomState.kw, factions, atWar: getAtWar(), memories, pinnedEventIds };
 
     let eligible = events.filter((e) => isEventEligible(e, state));
-    if (!eligible.length) eligible = events; // fall back rather than dead-end the GM
+    // Nothing fits the mood of the kingdom: fall back to anything whose
+    // faction and memory requirements still hold, then to anything at all.
+    if (!eligible.length) {
+      eligible = events.filter((e) => !e.queueOnly && !pinnedEventIds.has(e.id) && eventConditionsMet(e, { factions, memories }));
+    }
+    if (!eligible.length) eligible = events.filter((e) => !e.queueOnly);
+    if (!eligible.length) {
+      ui.notifications.warn("Every event here only comes up through a choice or a story. Pick one by hand.");
+      return;
+    }
 
     const picked = eligible[Math.floor(Math.random() * eligible.length)];
     await setActiveEventId(picked.id);
     await setActiveEventPage(0);
+    await setActiveEventChoice({});
     refreshAllKingdomApps();
     broadcastRefresh();
   }
@@ -1911,7 +2067,7 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       return sum;
     }, 0);
 
-    kingdomState.kw += kingdomState.kwDelta + buildingIncome + storageIncome;
+    kingdomState.kw += kingdomState.kwDelta + buildingIncome + storageIncome + tradeIncome();
     await setKingdomState(kingdomState);
 
     let bonusSlotsGranted = 0;
@@ -1952,10 +2108,119 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       );
     }
 
+    // Petitions run down a turn (any that run out fail), then any faction
+    // that's just hit the top or bottom of its track lines up its story.
+    const expired = await tickPetitions();
+    for (const { petition, summary } of expired) {
+      await this.#postAuditMessage(`<strong>${escapeHTML(petition.title)}</strong> ran out of time. ${escapeHTML(summary)}`);
+    }
+    const arcs = await checkStoryArcs();
+    if (arcs.length) {
+      await whisperGM(
+        `<p>${arcs.map((a) => `<strong>${escapeHTML(a.faction)}</strong>: "${escapeHTML(a.title)}" is lined up in the event picker.`).join("<br>")}</p>`
+      );
+    }
+    await setKingdomTurn(getKingdomTurn() + 1);
+
     await setResolveState({ entries: [], locked: false, resolving: false, step: 0 });
     await setActiveEventId(null);
     await setActiveEventPage(0);
+    await setActiveEventChoice({});
 
+    refreshAllKingdomApps();
+    broadcastRefresh();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Event choices and petitions                                        */
+  /* ---------------------------------------------------------------- */
+
+  #activeEventDef() {
+    const id = getActiveEventId();
+    return id ? getEvents().find((e) => e.id === id) ?? null : null;
+  }
+
+  #choiceKeyFor(eventDef) {
+    if (eventDef?.type !== "questline") return `${eventDef?.id}|`;
+    const stages = eventDef.stages ?? [];
+    const saved = getQuestlineProgress()?.[eventDef.id] ?? 0;
+    const stageIndex = stages.length ? Math.max(0, Math.min(saved, stages.length - 1)) : 0;
+    return `${eventDef.id}|${stageIndex}`;
+  }
+
+  static async #onChooseEventChoice(event, target) {
+    if (!game.user.isGM) return;
+    const def = this.#activeEventDef();
+    const index = Number(target.dataset.index);
+    const choice = def?.choices?.[index];
+    if (!choice) return;
+    const key = this.#choiceKeyFor(def);
+    if (getActiveEventChoice()?.key === key) {
+      ui.notifications.info("A choice has already been made on this event.");
+      return;
+    }
+    await setActiveEventChoice({ key, index });
+    const summary = await applyEffects(choice.effects ?? []);
+    await this.#postAuditMessage(
+      `<strong>${escapeHTML(def.title)}</strong>: ${escapeHTML(choice.label || `Choice ${index + 1}`)}. ${escapeHTML(summary)}`
+    );
+    refreshAllKingdomApps();
+    broadcastRefresh();
+  }
+
+  static async #onAcceptPetition() {
+    if (!game.user.isGM) return;
+    const def = this.#activeEventDef();
+    if (def?.type !== "petition") return;
+    const petition = await acceptPetition(def);
+    if (petition) {
+      await this.#postAuditMessage(
+        `<strong>${escapeHTML(def.title)}</strong> is pinned to the board. ${petition.turnsLeft} kingdom turn${petition.turnsLeft === 1 ? "" : "s"} to see it done.`
+      );
+    }
+    refreshAllKingdomApps();
+    broadcastRefresh();
+  }
+
+  static async #onRefusePetition() {
+    if (!game.user.isGM) return;
+    const def = this.#activeEventDef();
+    if (def?.type !== "petition") return;
+    const key = this.#choiceKeyFor(def);
+    if (getActiveEventChoice()?.key === key) return;
+    await setActiveEventChoice({ key, index: "refused" });
+    const summary = await applyEffects(def.petition?.failure ?? []);
+    await this.#postAuditMessage(`<strong>${escapeHTML(def.title)}</strong>: turned down. ${escapeHTML(summary)}`);
+    refreshAllKingdomApps();
+    broadcastRefresh();
+  }
+
+  static async #onPetitionDone(event, target) {
+    if (!game.user.isGM) return;
+    const result = await resolvePetition(target.dataset.petitionId, true);
+    if (result) await this.#postAuditMessage(`<strong>${escapeHTML(result.petition.title)}</strong>: done! ${escapeHTML(result.summary)}`);
+    refreshAllKingdomApps();
+    broadcastRefresh();
+  }
+
+  static async #onPetitionDrop(event, target) {
+    if (!game.user.isGM) return;
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      window: { title: "Give up on this petition?" },
+      classes: ["pf2e-rk-dialog"],
+      content: "<p>It fails straight away and its failure effects happen now.</p>"
+    }).catch(() => false);
+    if (!confirmed) return;
+    const result = await resolvePetition(target.dataset.petitionId, false);
+    if (result) await this.#postAuditMessage(`<strong>${escapeHTML(result.petition.title)}</strong>: given up. ${escapeHTML(result.summary)}`);
+    refreshAllKingdomApps();
+    broadcastRefresh();
+  }
+
+  static async #onDismissQueued(event, target) {
+    if (!game.user.isGM) return;
+    const id = target.dataset.eventId;
+    await setQueuedEvents(getQueuedEvents().filter((q) => q.eventId !== id));
     refreshAllKingdomApps();
     broadcastRefresh();
   }
@@ -1976,8 +2241,10 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       if (capacity > 0 && (p.storedKw ?? 0) >= capacity) income += def.storageBonusKw ?? 0;
       if ((p.turnsRemaining ?? 0) === 1) finishing.push(def?.name ?? "A district");
     }
+    income += tradeIncome();
     const unresolved = getResolveState().entries.filter((e) => !e.resolved).length;
     const sign = income >= 0 ? "+" : "";
+    const due = getPetitions().filter((p) => (p.turnsLeft ?? 1) <= 1);
 
     const lines = [
       `<p>The kingdom gains <strong>${sign}${income} KW</strong> (${kingdomState.kw} &rarr; ${kingdomState.kw + income}).</p>`
@@ -1987,6 +2254,9 @@ export class RevampedKingdomApp extends HandlebarsApplicationMixin(ApplicationV2
       lines.push(
         `<p><em>${unresolved} action${unresolved === 1 ? " is" : "s are"} still unticked on the timeline.</em></p>`
       );
+    }
+    if (due.length) {
+      lines.push(`<p>Running out of time, and will fail: ${due.map((p) => escapeHTML(p.title)).join(", ")}.</p>`);
     }
     lines.push("<p>The timeline and this turn's event will be cleared.</p>");
 

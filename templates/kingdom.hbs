@@ -38,6 +38,9 @@
           {{#each buildingIncomeBreakdown}}
             <li><span>{{this.name}}{{#if this.count}} &times;{{this.count}}{{/if}}</span><span>+{{this.total}} KW</span></li>
           {{/each}}
+          {{#each tradeIncomeBreakdown}}
+            <li><span>Trade with {{this.name}}</span><span>+{{this.total}} KW</span></li>
+          {{/each}}
           {{#each pendingKwEntries}}
             <li class="kw-breakdown__pending"><span>{{this.domain}} &mdash; {{this.action}} <em>(pending)</em></span><span>{{this.kwEffect}} KW</span></li>
           {{/each}}
@@ -70,11 +73,13 @@
   <div class="faction-menu" hidden>
     <button type="button" class="faction-menu__close" data-action="toggleFactionMenu" aria-label="Close">&times;</button>
     <div class="faction-menu__inner">
-      {{#each factions}}
-        <article class="faction-card faction-menu__card" data-faction-id="{{this.id}}">
+      {{#each allPresentFactions}}
+        <article class="faction-card faction-menu__card faction-menu__card--{{this.tier}}" data-faction-id="{{this.id}}">
           <div class="faction-card__banner-top"></div>
           <div class="faction-card__portrait" {{#if this.portrait}}style="background-image:url('{{this.portrait}}');"{{/if}}></div>
           <h2 class="faction-card__title">{{this.name}}</h2>
+          {{#if this.isMinor}}<p class="faction-menu__tier">Minor faction</p>{{/if}}
+          {{#if this.isPatron}}<p class="faction-menu__tier">Patron</p>{{/if}}
           <div class="faction-menu__happiness">
             {{#if @root.isGM}}
               <button type="button" class="faction-menu__step" data-action="adjustHappiness" data-faction-id="{{this.id}}" data-delta="-1" aria-label="Decrease happiness">&minus;</button>
@@ -84,16 +89,40 @@
               <button type="button" class="faction-menu__step" data-action="adjustHappiness" data-faction-id="{{this.id}}" data-delta="1" aria-label="Increase happiness">+</button>
             {{/if}}
           </div>
-          <div class="faction-menu__tax-badge" title="Set by the Treasurer's Set Taxes action">Taxes: {{this.taxLabel}}</div>
+          {{#if this.mood}}<div class="faction-menu__mood" data-mood>{{this.mood}}</div>{{/if}}
+          {{#if this.isMain}}<div class="faction-menu__tax-badge" title="Set by the Treasurer's Set Taxes action">Taxes: {{this.taxLabel}}</div>{{/if}}
           <div class="faction-card__actions">
-            <div class="faction-card__ability">
-              <h3 class="faction-card__ability-title">Effect at +3</h3>
-              <p>{{this.effectHigh}}</p>
-            </div>
-            <div class="faction-card__ability">
-              <h3 class="faction-card__ability-title">Effect at -3</h3>
-              <p>{{this.effectLow}}</p>
-            </div>
+            {{#if this.leaderName}}
+              <div class="faction-leader">
+                {{#if this.leaderPortrait}}<span class="faction-leader__portrait" style="background-image:url('{{this.leaderPortrait}}');"></span>{{/if}}
+                <div class="faction-leader__text">
+                  <strong>{{this.leaderName}}</strong>{{#if this.leaderTitle}}<span class="faction-leader__role">{{this.leaderTitle}}</span>{{/if}}
+                  {{#if this.leaderQuote}}<q>{{this.leaderQuote}}</q>{{/if}}
+                </div>
+              </div>
+            {{/if}}
+            {{#if this.agenda}}<p class="faction-menu__agenda">{{this.agenda}}</p>{{/if}}
+            {{#if this.rivalName}}<p class="faction-menu__rival">At odds with {{this.rivalName}}</p>{{/if}}
+            {{#if this.hasLadder}}
+              <div class="faction-card__ability faction-ladder">
+                <h3 class="faction-card__ability-title">{{#if this.isPatron}}Standing{{else}}Happiness{{/if}}</h3>
+                <ul>
+                  {{#each this.ladderRows}}
+                    <li data-ladder-step="{{this.step}}" class="{{#if this.inEffect}}is-active{{/if}}"><b>{{this.label}}</b> {{this.text}}</li>
+                  {{/each}}
+                </ul>
+              </div>
+            {{/if}}
+            {{#if this.favour.title}}
+              <div class="faction-card__ability faction-favour {{#unless this.favourOn}}is-off{{/unless}}">
+                <h3 class="faction-card__ability-title">Favour: {{this.favour.title}}</h3>
+                {{{this.favour.description}}}
+                {{#unless this.favourOn}}<p class="faction-favour__note">Only on offer while they're at +1 or better.</p>{{/unless}}
+              </div>
+            {{/if}}
+            {{#if this.isPatron}}
+              {{#if this.tradeKw}}<p class="faction-menu__trade">Trade agreement: {{#if this.tradeActive}}+{{this.tradeKw}} KW each turn{{else}}not in place{{/if}}</p>{{/if}}
+            {{/if}}
             {{#if this.pendingChanges.length}}
               <div class="faction-card__ability faction-menu__pending">
                 <h3 class="faction-card__ability-title">Pending this round</h3>
@@ -109,7 +138,7 @@
         </article>
       {{/each}}
 
-      {{#unless factions.length}}
+      {{#unless allPresentFactions.length}}
         <p class="faction-menu__empty">No factions have joined your kingdom yet.</p>
       {{/unless}}
     </div>
@@ -175,6 +204,28 @@
 
   <!-- DECIDE: the kingdom's domains, loaded from world settings. -->
   <section class="card-row" data-view-panel="decide" aria-label="Domains" {{#unless showDecide}}hidden{{/unless}}>
+    {{#if hasPetitions}}
+      <aside class="petition-board" aria-label="Petitions">
+        <h2 class="petition-board__title">Petitions</h2>
+        {{#each petitions}}
+          <article class="petition-note {{#if this.urgent}}petition-note--urgent{{/if}}">
+            {{#if this.portrait}}<span class="petition-note__portrait" style="background-image:url('{{this.portrait}}');"></span>{{/if}}
+            <h3 class="petition-note__title">{{this.title}}</h3>
+            {{#if this.factionName}}<p class="petition-note__from">From {{this.factionName}}</p>{{/if}}
+            <div class="petition-note__text">{{{this.text}}}</div>
+            <p class="petition-note__stakes"><b>Done:</b> {{this.successText}}</p>
+            <p class="petition-note__stakes"><b>Failed:</b> {{this.failureText}}</p>
+            <p class="petition-note__due">{{this.dueText}}</p>
+            {{#if @root.isGM}}
+              <div class="petition-note__actions">
+                <button type="button" data-action="petitionDone" data-petition-id="{{this.id}}">Done</button>
+                <button type="button" data-action="petitionDrop" data-petition-id="{{this.id}}">Give up</button>
+              </div>
+            {{/if}}
+          </article>
+        {{/each}}
+      </aside>
+    {{/if}}
     {{#each domains}}
       <article class="faction-card" data-domain-id="{{this.id}}">
         <div class="faction-card__banner-top"></div>
@@ -407,7 +458,7 @@
                 <label>Faction</label>
                 <select id="wizard-faction-select" data-selected="{{resolveCurrentEntry.happinessFactionId}}">
                   <option value="">&mdash; none &mdash;</option>
-                  {{#each factions}}
+                  {{#each allPresentFactions}}
                     <option value="{{this.id}}">{{this.name}}</option>
                   {{/each}}
                 </select>
@@ -454,6 +505,19 @@
           {{#if currentEvent.isQuestline}}
             <p class="event-progress">Stage {{currentEvent.stageDisplay}} of {{currentEvent.stageCount}}{{#if currentEvent.isLastStage}} &mdash; Final Stage{{/if}}</p>
           {{/if}}
+          {{#if currentEvent.hasFeatured}}
+            <div class="event-leaders">
+              {{#each currentEvent.featured}}
+                <figure class="event-leader">
+                  {{#if this.portrait}}<span class="event-leader__portrait" style="background-image:url('{{this.portrait}}');"></span>{{/if}}
+                  <figcaption>
+                    <strong>{{this.name}}</strong>{{#if this.role}}<span class="event-leader__role">{{this.role}}</span>{{/if}}
+                    {{#if this.quote}}<q>{{this.quote}}</q>{{/if}}
+                  </figcaption>
+                </figure>
+              {{/each}}
+            </div>
+          {{/if}}
           <h2 class="event-title">{{currentEvent.displayTitle}}</h2>
           <div class="event-body-wrap">
             {{{currentEvent.displayBody}}}
@@ -463,6 +527,39 @@
                   <span><strong>{{this.label}}:</strong> {{this.text}}</span>
                 {{/each}}
               </p>
+            {{/if}}
+            {{#if currentEvent.showChoices}}
+              <div class="event-choices">
+                {{#each currentEvent.choicesView}}
+                  <div class="event-choice {{#if this.chosen}}is-chosen{{/if}} {{#if this.passedOver}}is-passed{{/if}}">
+                    {{#if @root.isGM}}
+                      <button type="button" class="event-choice__btn" data-action="chooseEventChoice" data-index="{{this.index}}" {{#if @root.currentEvent.choiceMade}}disabled{{/if}}>{{this.label}}</button>
+                    {{else}}
+                      <span class="event-choice__btn">{{this.label}}</span>
+                    {{/if}}
+                    {{#if this.text}}<p class="event-choice__text">{{this.text}}</p>{{/if}}
+                    <p class="event-choice__effects">{{this.effectsText}}</p>
+                  </div>
+                {{/each}}
+              </div>
+            {{/if}}
+            {{#if currentEvent.isPetition}}
+              <div class="event-petition">
+                {{#if currentEvent.petitionFrom}}<p class="event-petition__from">Asked by {{currentEvent.petitionFrom}}.</p>{{/if}}
+                <p>{{currentEvent.petitionDueText}}</p>
+                <p><b>If you see it done:</b> {{currentEvent.petitionSuccessText}}</p>
+                <p><b>If you don't:</b> {{currentEvent.petitionFailureText}}</p>
+                {{#if currentEvent.petitionPinned}}<p class="event-petition__state">Pinned to the board on the Decide screen.</p>{{/if}}
+                {{#if currentEvent.petitionRefused}}<p class="event-petition__state">Turned down.</p>{{/if}}
+                {{#if @root.isGM}}
+                  {{#if currentEvent.petitionOpen}}
+                    <div class="event-petition__actions">
+                      <button type="button" class="event-choice__btn" data-action="acceptPetition">Take it on</button>
+                      <button type="button" class="event-choice__btn event-choice__btn--quiet" data-action="refusePetition">Turn them down</button>
+                    </div>
+                  {{/if}}
+                {{/if}}
+              </div>
             {{/if}}
           </div>
         </div>
@@ -489,6 +586,23 @@
               <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="pickRandomEvent">Pick Random (Matching Kingdom State)</button>
               <p class="kc-hint">Favors events whose conditions match the kingdom's current state (KW, faction happiness, war status) — set those per-event in Kingdom Configuration. Events with no conditions are always eligible.</p>
             </div>
+            {{#if queuedEvents.length}}
+              <div class="event-picker__category event-picker__queue">
+                <h3 class="event-picker__category-title">Up next</h3>
+                <div class="event-picker__grid">
+                  {{#each queuedEvents}}
+                    <article class="event-picker-card event-picker-card--queued" data-action="selectEventCard" data-event-id="{{this.eventId}}" role="button" tabindex="0">
+                      <div class="event-picker-card__thumb" {{#if this.event.art}}style="background-image:url('{{this.event.art}}');"{{/if}}></div>
+                      <div class="event-picker-card__body">
+                        <h4 class="event-picker-card__title">{{this.event.title}}</h4>
+                        <span class="event-picker-card__progress">{{this.reason}}</span>
+                      </div>
+                      <button type="button" class="event-picker-card__dismiss" data-action="dismissQueued" data-event-id="{{this.eventId}}" title="Take it off the list" aria-label="Take it off the list">&times;</button>
+                    </article>
+                  {{/each}}
+                </div>
+              </div>
+            {{/if}}
             <div class="event-picker__categories">
               {{#each eventCategories}}
                 <div class="event-picker__category">

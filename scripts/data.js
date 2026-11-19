@@ -270,7 +270,8 @@ export const DEFAULT_EVENTS = [
 export const EVENT_TYPES = [
   { id: "single", label: "Single Screen" },
   { id: "multiscreen", label: "Multi-Screen (Slideshow)" },
-  { id: "questline", label: "Quest Line (persists across turns)" }
+  { id: "questline", label: "Quest Line (persists across turns)" },
+  { id: "petition", label: "Petition (a faction asks for something, with a deadline)" }
 ];
 
 /* Fixed vocabulary of tags an event can be flagged with, matched against
@@ -957,6 +958,15 @@ export function registerSettings() {
     default: null
   });
 
+  // Faction system: things the kingdom remembers from event choices,
+  // petitions pinned on the Decide screen, events lined up for later,
+  // the choice made on the event currently showing, and a turn counter.
+  game.settings.register(MODULE_ID, "memories", { scope: "world", config: false, type: Array, default: [] });
+  game.settings.register(MODULE_ID, "petitions", { scope: "world", config: false, type: Array, default: [] });
+  game.settings.register(MODULE_ID, "queuedEvents", { scope: "world", config: false, type: Array, default: [] });
+  game.settings.register(MODULE_ID, "activeEventChoice", { scope: "world", config: false, type: Object, default: {} });
+  game.settings.register(MODULE_ID, "kingdomTurn", { scope: "world", config: false, type: Number, default: 1 });
+
   // Per-person memory of the map tooltip on/off toggle, so it doesn't
   // switch itself back on every time someone reloads.
   game.settings.register(MODULE_ID, "tooltipsEnabled", {
@@ -1207,4 +1217,47 @@ export function getResearchViewState() {
 
 export async function setResearchViewState(state) {
   await game.settings.set(MODULE_ID, "researchViewState", state);
+}
+
+/* ------------------------------------------------------------------ */
+/* Faction system storage                                              */
+/* ------------------------------------------------------------------ */
+
+/** [{ key, label, turn }] — things the kingdom remembers, from event choices. */
+export function getMemories() {
+  return foundry.utils.deepClone(game.settings.get(MODULE_ID, "memories") ?? []);
+}
+export async function setMemories(list) {
+  await game.settings.set(MODULE_ID, "memories", list);
+}
+
+/** Petitions currently pinned on the Decide screen. */
+export function getPetitions() {
+  return foundry.utils.deepClone(game.settings.get(MODULE_ID, "petitions") ?? []);
+}
+export async function setPetitions(list) {
+  await game.settings.set(MODULE_ID, "petitions", list);
+}
+
+/** [{ eventId, reason }] — events lined up for the GM to run next. */
+export function getQueuedEvents() {
+  return foundry.utils.deepClone(game.settings.get(MODULE_ID, "queuedEvents") ?? []);
+}
+export async function setQueuedEvents(list) {
+  await game.settings.set(MODULE_ID, "queuedEvents", list);
+}
+
+/** { key, index } — which choice was taken on the event showing now. */
+export function getActiveEventChoice() {
+  return foundry.utils.deepClone(game.settings.get(MODULE_ID, "activeEventChoice") ?? {});
+}
+export async function setActiveEventChoice(value) {
+  await game.settings.set(MODULE_ID, "activeEventChoice", value ?? {});
+}
+
+export function getKingdomTurn() {
+  return game.settings.get(MODULE_ID, "kingdomTurn") ?? 1;
+}
+export async function setKingdomTurn(n) {
+  await game.settings.set(MODULE_ID, "kingdomTurn", Math.max(1, Number(n) || 1));
 }

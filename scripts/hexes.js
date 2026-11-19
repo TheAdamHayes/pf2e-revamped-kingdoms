@@ -38,7 +38,7 @@ import {
   cssUrl,
   MODULE_ID
 } from "./data.js";
-import { refreshAllKingdomApps, minimizeAllModuleWindows, restoreAllModuleWindows } from "./kingdom.js";
+import { refreshAllKingdomApps, minimizeAllModuleWindows, restoreAllModuleWindows, openOrFocusKingdomApp } from "./kingdom.js";
 
 function broadcastRefresh() {
   game.socket.emit(`module.${MODULE_ID}`, { action: "refresh" });
@@ -1668,7 +1668,6 @@ let canvasPointerMoveHandler = null;
 let wiredView = null;
 let tooltipsEnabled = true;
 let hexOutlineGraphics = null;
-let sceneControlToggleAdded = false;
 
 function ensureTooltipEl() {
   if (tooltipEl) return tooltipEl;
@@ -1888,79 +1887,92 @@ function wireCanvasHover() {
   );
 }
 
-/** Floating fallback toggle — same as the previous round, kept in
- *  reserve in case the Token Controls integration below doesn't stick
- *  in some Foundry version. Hidden entirely off the target scene. */
-let toggleButtonEl = null;
+/* ------------------------------------------------------------------ */
+/* The Kingdom menu in Foundry's left-hand controls                     */
+/* A gold castle at the top of the column. Clicking it opens its own    */
+/* small menu, the same way Tokens or Tiles do, with two bronze buttons: */
+/* open the Kingdom window, and switch the map tooltips on or off.       */
+/* ------------------------------------------------------------------ */
 
-function updateToggleButtonLabel() {
-  if (!toggleButtonEl) return;
-  toggleButtonEl.textContent = tooltipsEnabled ? "🏠 Kingdom Tooltips: ON" : "🏠 Kingdom Tooltips: OFF";
-  toggleButtonEl.classList.toggle("is-active", tooltipsEnabled);
-}
+export const KINGDOM_CONTROL = "pf2e-rk-kingdom";
+const OPEN_TOOL = "pf2e-rk-open";
+const TOOLTIP_TOOL = "pf2e-rk-tooltips";
 
-function ensureToggleButton() {
-  if (!toggleButtonEl || !document.body.contains(toggleButtonEl)) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "pf2e-rk-tooltip-toggle";
-    btn.addEventListener("click", () => {
-      setTooltipsEnabled(!tooltipsEnabled);
-      updateToggleButtonLabel();
-    });
-    document.body.appendChild(btn);
-    toggleButtonEl = btn;
-    updateToggleButtonLabel();
-  }
-  toggleButtonEl.style.display = isTooltipScene() ? "" : "none";
-}
-
-/** Tries to add the toggle to the actual Token Controls toolbar. Wrapped
- *  defensively: if this fails or the expected shape isn't there, the
- *  floating button above stays as a working fallback rather than the
- *  feature silently having no toggle at all. Only adds the tool while
- *  on the target scene, and asks Foundry to rebuild controls on every
- *  scene change so that check re-runs (ui.controls.render() is a plain
- *  Application render call, not a version-fragile API). */
-function addTooltipToggleControl(controls) {
+function readTooltipSetting() {
   try {
-    const group = controls?.tokens;
-    if (!group?.tools || !isTooltipScene()) return false;
-    group.tools["pf2e-rk-tooltip-toggle"] = {
-      name: "pf2e-rk-tooltip-toggle",
-      title: "Kingdom building tooltips",
-      icon: "fas fa-info-circle",
-      toggle: true,
-      active: tooltipsEnabled,
-      onChange: (_event, active) => setTooltipsEnabled(active)
-    };
-    return true;
-  } catch (err) {
-    console.warn("PF2e Revamped Kingdoms | Couldn't add the tooltip toggle to Token Controls — using the floating button instead", err);
-    return false;
-  }
-}
-
-/** Called once from main.js on init. */
-export function initHoverTooltips() {
-  try {
-    tooltipsEnabled = game.settings.get(MODULE_ID, "tooltipsEnabled") ?? true;
+    return game.settings.get(MODULE_ID, "tooltipsEnabled") ?? true;
   } catch {
-    tooltipsEnabled = true;
+    return tooltipsEnabled;
   }
+}
 
-  Hooks.on("getSceneControlButtons", (controls) => {
-    sceneControlToggleAdded = addTooltipToggleControl(controls);
-    if (sceneControlToggleAdded && toggleButtonEl) {
-      toggleButtonEl.remove();
-      toggleButtonEl = null;
+function addKingdomControls(controls) {
+  tooltipsEnabled = readTooltipSetting();
+  try {
+    if (Array.isArray(controls)) {
+      // Foundry 12 only: a new group there needs a canvas layer of its
+      // own, so the two buttons sit in the token tools instead.
+      const tokens = controls.find((c) => c.name === "token");
+      tokens?.tools?.push(
+        { name: OPEN_TOOL, title: "Open Kingdom Management", icon: "fas fa-book-open", button: true, onClick: () => openOrFocusKingdomApp() },
+        { name: TOOLTIP_TOOL, title: "Kingdom building tooltips on the map", icon: "fas fa-info-circle", toggle: true, active: tooltipsEnabled, onClick: (active) => setTooltipsEnabled(active) }
+      );
+      return;
     }
+    controls[KINGDOM_CONTROL] = {
+      name: KINGDOM_CONTROL,
+      title: "Kingdom",
+      icon: "fa-solid fa-chess-rook",
+      order: -1, // above Tokens, at the very top of the column
+      visible: true,
+      tools: {
+        [OPEN_TOOL]: {
+          name: OPEN_TOOL,
+          title: "Open Kingdom Management",
+          icon: "fa-solid fa-book-open",
+          order: 0,
+          button: true,
+          onChange: () => openOrFocusKingdomApp()
+        },
+        [TOOLTIP_TOOL]: {
+          name: TOOLTIP_TOOL,
+          title: "Kingdom building tooltips on the map",
+          icon: "fa-solid fa-circle-info",
+          order: 1,
+          toggle: true,
+          active: tooltipsEnabled,
+          onChange: (_event, active) => setTooltipsEnabled(active)
+        }
+      }
+    };
+  } catch (err) {
+    console.warn("PF2e Revamped Kingdoms | Couldn't add the Kingdom controls", err);
+  }
+}
+
+/** Called from main.js during init, so the castle is there from the very
+ *  first time Foundry builds its controls. */
+export function registerKingdomControls() {
+  Hooks.on("getSceneControlButtons", addKingdomControls);
+
+  // Sitting at the top shouldn't make the castle the menu people land in
+  // when the world loads; if Foundry picks it on its own, step back to
+  // Tokens once. Clicking the castle yourself works as normal afterwards.
+  let firstRender = true;
+  Hooks.on("renderSceneControls", (app) => {
+    if (!firstRender) return;
+    firstRender = false;
+    const current = app?.control?.name ?? app?.activeControl;
+    if (current === KINGDOM_CONTROL) app.activate?.({ control: "tokens" });
   });
+}
+
+/** Called once from main.js when the game is ready. */
+export function initHoverTooltips() {
+  tooltipsEnabled = readTooltipSetting();
 
   const onCanvasReady = () => {
     updateTooltipScene();
-    ui.controls?.render(); // re-checks the scene-gate for the Token Controls path
-    if (!sceneControlToggleAdded) ensureToggleButton();
     wireCanvasHover();
   };
 

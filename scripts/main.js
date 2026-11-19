@@ -55,7 +55,15 @@ import {
     getResearchPoints,
     setResearchPoints,
     getScatterSettings,
-    getDefaultSingleBuildingScale
+    getDefaultSingleBuildingScale,
+    getMemories,
+    setMemories,
+    getPetitions,
+    setPetitions,
+    getQueuedEvents,
+    setQueuedEvents,
+    getKingdomTurn,
+    setKingdomTurn
 } from "./data.js";
 import {
     claimHex,
@@ -74,7 +82,8 @@ import {
     clearReconMarkers,
     applyTransformation,
     completeDueTransformations,
-    initHoverTooltips
+    initHoverTooltips,
+    registerKingdomControls
 } from "./hexes.js";
 
 /** Builds the full exportable snapshot of this world's kingdom data —
@@ -105,7 +114,9 @@ function buildFullSnapshot() {
             atWar: getAtWar(),
             festivalCost: getFestivalCost(),
             bonusActionSlots: getBonusActionSlots(),
-            questlineProgress: getQuestlineProgress()
+            questlineProgress: getQuestlineProgress(),
+            turn: getKingdomTurn(),
+            memories: getMemories()
         },
         leadership: {
             domains: getDomains()
@@ -114,11 +125,13 @@ function buildFullSnapshot() {
         events: {
             definitions: getEvents(),
             activeEventId: getActiveEventId(),
-            activeEventPage: getActiveEventPage()
+            activeEventPage: getActiveEventPage(),
+            queued: getQueuedEvents()
         },
         factions: {
             list: getFactions(),
-            taxes: getFactionTaxes()
+            taxes: getFactionTaxes(),
+            petitions: getPetitions()
         },
         buildings: getBuildings(),
         transformations: getTransformations(),
@@ -167,6 +180,10 @@ async function restoreBackup(snapshot) {
         if (typeof kingdom?.festivalCost === "number") await setFestivalCost(kingdom.festivalCost);
         if (typeof kingdom?.bonusActionSlots === "number") await setBonusActionSlots(kingdom.bonusActionSlots);
         if (kingdom?.questlineProgress) await setQuestlineProgress(kingdom.questlineProgress);
+        if (typeof kingdom?.turn === "number") await setKingdomTurn(kingdom.turn);
+        if (Array.isArray(kingdom?.memories)) await setMemories(kingdom.memories);
+        if (Array.isArray(factions?.petitions)) await setPetitions(factions.petitions);
+        if (Array.isArray(events?.queued)) await setQueuedEvents(events.queued);
 
         if (leadership?.domains) await setDomains(leadership.domains);
         if (universalActions) await setUniversalActions(universalActions);
@@ -209,49 +226,11 @@ async function restoreBackup(snapshot) {
     ui.notifications.info("Kingdom data restored from backup.");
 }
 
-/* ------------------------------------------------------------------ */
-/* Gold "Kingdom" button at the top of the left-hand controls column   */
-/* ------------------------------------------------------------------ */
-
-/** Adds the button straight into the controls column rather than as a
- *  Foundry control group: a group would switch the active canvas layer
- *  every time someone clicked it, and this should only ever open the
- *  window. Foundry rebuilds the column on every render, so this runs
- *  after each one and quietly does nothing if the button's already there. */
-function injectKingdomLauncher() {
-    const v13Menu = document.querySelector("#scene-controls-layers");
-    const v12Menu = document.querySelector("#controls ol.main-controls");
-    const menu = v13Menu ?? v12Menu;
-    if (!menu || menu.querySelector(".pf2e-rk-kingdom-launch")) return;
-
-    const open = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        openOrFocusKingdomApp();
-    };
-
-    const li = document.createElement("li");
-    if (v13Menu) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "control ui-control layer icon fa-solid fa-chess-rook pf2e-rk-kingdom-launch";
-        btn.dataset.tooltip = "Kingdom Management";
-        btn.setAttribute("aria-label", "Open Kingdom Management");
-        btn.addEventListener("click", open);
-        li.append(btn);
-    } else {
-        li.className = "scene-control pf2e-rk-kingdom-launch";
-        li.dataset.tooltip = "Kingdom Management";
-        li.innerHTML = '<i class="fas fa-chess-rook"></i>';
-        li.addEventListener("click", open);
-    }
-    menu.prepend(li);
-}
-
 Hooks.once("init", () => {
     console.log("PF2e Revamped Kingdoms | Initializing custom kingdom ruleset.");
 
     registerSettings();
+    registerKingdomControls();
     Handlebars.registerHelper("eq", (a, b) => a === b);
     Handlebars.registerHelper("gt", (a, b) => a > b);
 
@@ -329,7 +308,4 @@ Hooks.once("ready", () => {
     });
 
     initHoverTooltips();
-
-    Hooks.on("renderSceneControls", () => injectKingdomLauncher());
-    injectKingdomLauncher();
 });
