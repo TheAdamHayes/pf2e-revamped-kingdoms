@@ -1,0 +1,593 @@
+<div class="kc-screen">
+  <div class="kc-name-bar">
+    <label>Kingdom Name
+      <input type="text" id="kingdom-name-input" value="{{kingdomName}}">
+    </label>
+    <button type="button" data-action="saveName">Save Name</button>
+  </div>
+
+  <div class="kc-utilities">
+    <div class="kc-utilities__row">
+      <span class="kc-utilities__label">Kingdom Actions:</span>
+      <button type="button" data-action="gmClaimHex">Claim a Hex</button>
+      <button type="button" data-action="gmBuildDistrict">Build a District</button>
+      <button type="button" data-action="gmExpediteLabour">Expedite a District</button>
+      <button type="button" data-action="gmMarkReconnoitered">Mark Hex Reconnoitered</button>
+      <button type="button" data-action="gmUpgradeBuilding">Upgrade a District</button>
+      <button type="button" data-action="gmMoveDistrict">Move Two Districts</button>
+      <button type="button" data-action="gmLevelUpStore">Level Up a Store</button>
+      <button type="button" data-action="gmManageBankStorage" title="Deposit or withdraw KW on a Bank (or any building with storage) — a free action, not part of the 3-action turn economy">Manage Bank Storage</button>
+      <button type="button" class="kc-danger" data-action="gmDestroyDistrict">Destroy a District</button>
+      <button type="button" class="kc-danger" data-action="gmUnclaimHex">Unclaim a Hex</button>
+      <label class="kc-utilities__toggle">
+        <input type="checkbox" data-action="toggleIgnoreKwCosts" {{#if ignoreGmKwCosts}}checked{{/if}}>
+        Ignore KW costs for these buttons
+      </label>
+    </div>
+
+    <div class="kc-utilities__row">
+      <span class="kc-utilities__label">Map Maintenance:</span>
+      <button type="button" data-action="gmUnlockTiles" title="Unlocks every tile on the current scene so any stray one can be selected and deleted normally">Unlock All Tiles</button>
+      <button type="button" data-action="gmRecenterTiles" title="Recomputes position/size AND re-syncs the image for every already-placed single-mode district tile from its current building definition — run this after changing a building's art in Config, since existing placed tiles don't update automatically">Recenter District Tiles</button>
+      <button type="button" class="kc-danger" data-action="gmClearHexOverlays" title="Wipes every hex border/fill drawing this module has made on the current scene">Clear Hex Overlays</button>
+      <button type="button" class="kc-danger" data-action="gmClearReconMarkers" title="Wipes every Reconnoitered marker drawing without touching the underlying flag data">Clear Recon Markers</button>
+    </div>
+
+    <div class="kc-utilities__row">
+      <span class="kc-utilities__label">Data Reset:</span>
+      <button type="button" class="kc-danger" data-action="resetDomains" title="Immediately resets and publishes Domains from the module defaults — needed after an update if new fields (like contextual-button data) aren't showing up">Reset Domains</button>
+      <button type="button" class="kc-danger" data-action="resetUniversalActions" title="Immediately resets and publishes Universal Actions from the module defaults — same fix, for Universal Actions">Reset Universal Actions</button>
+      <button type="button" class="kc-danger" data-action="resetEvents" title="Immediately resets and publishes Events from the module defaults — fixes an event saved before tint color / condition tags / type existed">Reset Events</button>
+      <span class="kc-utilities__spacer"></span>
+      <button type="button" data-action="exportBackup">Export Backup File</button>
+      <button type="button" data-action="importBackup">Import Backup</button>
+    </div>
+  </div>
+
+  <header class="kc-header">
+    <nav class="kc-tabs">
+      <button type="button" class="kc-tab {{#if domainsActive}}kc-tab--active{{/if}}" data-action="selectSection" data-section="domains">Domains</button>
+      <button type="button" class="kc-tab {{#if eventsActive}}kc-tab--active{{/if}}" data-action="selectSection" data-section="events">Events</button>
+      <button type="button" class="kc-tab {{#if buildingsActive}}kc-tab--active{{/if}}" data-action="selectSection" data-section="buildings">Buildings</button>
+      <button type="button" class="kc-tab {{#if transformationsActive}}kc-tab--active{{/if}}" data-action="selectSection" data-section="transformations">Transformations</button>
+      <button type="button" class="kc-tab {{#if factionsActive}}kc-tab--active{{/if}}" data-action="selectSection" data-section="factions">Factions</button>
+    </nav>
+  </header>
+
+  <div class="kc-body" data-section-panel="domains" {{#unless domainsActive}}hidden{{/unless}}>
+    <div class="kc-list">
+      <button type="button" class="kc-new-btn" data-action="newDomain">+ New Domain</button>
+      {{#each domains}}
+        <div class="kc-list-item">
+          <span class="kc-list-item__name">{{this.name}}{{#if this.grantingNodeName}} <span class="kc-list-item__meta">&middot; &#128279; {{this.grantingNodeName}}</span>{{/if}}</span>
+          <div class="kc-list-item__actions">
+            <button type="button" data-action="editDomain" data-domain-id="{{this.id}}">Edit</button>
+            <button type="button" class="kc-danger" data-action="deleteDomain" data-domain-id="{{this.id}}">Delete</button>
+          </div>
+        </div>
+      {{/each}}
+    </div>
+
+    <div class="kc-editor">
+      {{#if editingDomain}}
+        <div class="kc-form">
+          <label>Name
+            <input type="text" id="domain-name" value="{{editingDomain.name}}" placeholder="The Treasurer">
+          </label>
+          <label>Portrait
+            <div class="kc-file-row">
+              <div class="kc-thumb" style="background-image:url('{{editingDomain.portrait}}');"></div>
+              <input type="text" id="domain-portrait" value="{{editingDomain.portrait}}" placeholder="modules/pf2e-revamped-kingdoms/images/example.jpg or a full https:// URL">
+              <button type="button" class="kc-browse-btn" data-action="browseImage" data-target="domain-portrait">Browse</button>
+            </div>
+          </label>
+          <label class="kc-checkbox">
+            <input type="checkbox" id="domain-remote" {{#if editingDomain.remote}}checked{{/if}}>
+            Hotlinked / externally hosted image
+          </label>
+          <label>Tags <span class="kc-field-hint">(comma-separated)</span>
+            <input type="text" id="domain-tags" value="{{editingDomain.tagsJoined}}" placeholder="Combat, Exploration, Challenges">
+          </label>
+          <label>Note <span class="kc-field-hint">(optional italic footer text)</span>
+            <input type="text" id="domain-note" value="{{editingDomain.note}}">
+          </label>
+          <label class="kc-checkbox">
+            <input type="checkbox" id="domain-research-locked" {{#if editingDomain.researchLocked}}checked{{/if}}>
+            Requires a research node to unlock <span class="kc-field-hint">(link it from that node's "Grants Job Domain" field in the Research Tree — this domain won't appear in the Kingdom app for anyone until unlocked)</span>
+          </label>
+
+          <div class="kc-abilities">
+            <div class="kc-abilities__header">
+              <span>Abilities</span>
+              <button type="button" data-action="addAbility">+ Add Ability</button>
+            </div>
+            <div id="abilities-list">
+              {{#each editingDomain.abilities}}
+                <div class="ability-row" data-happiness-faction-id="{{this.happinessFactionId}}">
+                  <div class="config-row">
+                    <input type="text" class="ability-title" placeholder="Ability name" value="{{this.title}}">
+                    <input type="text" class="ability-costs" placeholder="Costs e.g. 1 or 2,3" value="{{this.costsJoined}}">
+                    <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+                  </div>
+                  <textarea class="ability-description" placeholder="Description (HTML allowed: <p>, <ul><li>, <strong>, <em>)" rows="4">{{this.description}}</textarea>
+                  <div class="config-row ability-effects">
+                    <label class="kc-inline-label">Proposed KW
+                      <input type="number" class="ability-kw-effect" value="{{this.kwEffect}}">
+                    </label>
+                    <label class="kc-inline-label">Faction
+                      <select class="ability-faction">
+                        <option value="">None</option>
+                        {{#each ../factions}}
+                          <option value="{{this.id}}">{{this.name}}</option>
+                        {{/each}}
+                      </select>
+                    </label>
+                    <label class="kc-inline-label">Proposed happiness
+                      <input type="number" class="ability-happiness-effect" value="{{this.happinessEffect}}">
+                    </label>
+                  </div>
+                </div>
+              {{/each}}
+            </div>
+          </div>
+
+          <div class="kc-form-actions">
+            <button type="button" class="kc-primary" data-action="saveDomain">Save Domain</button>
+            <button type="button" data-action="cancelDomain">Cancel</button>
+          </div>
+        </div>
+      {{else}}
+        <p class="kc-hint">Select a domain to edit, or click "New Domain".</p>
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="kc-body" data-section-panel="events" {{#unless eventsActive}}hidden{{/unless}}>
+    <div class="kc-list">
+      <button type="button" class="kc-new-btn" data-action="newEvent">+ New Event</button>
+      {{#each events}}
+        <div class="kc-list-item">
+          <span class="kc-list-item__name">{{this.title}}</span>
+          <div class="kc-list-item__actions">
+            <button type="button" data-action="editEvent" data-event-id="{{this.id}}">Edit</button>
+            <button type="button" class="kc-danger" data-action="deleteEvent" data-event-id="{{this.id}}">Delete</button>
+          </div>
+        </div>
+      {{/each}}
+    </div>
+
+    <div class="kc-editor">
+      {{#if editingEvent}}
+        <div class="kc-form">
+          <label>Title
+            <input type="text" id="event-title-input" value="{{editingEvent.title}}" placeholder="Scientific Invention">
+          </label>
+          <label>Category <span class="kc-field-hint">(groups this event in the picker — e.g. "Combat", "Diplomacy", "Discovery". Free text.)</span>
+            <input type="text" id="event-category" value="{{editingEvent.category}}" placeholder="Discovery">
+          </label>
+          <label>Art <span class="kc-field-hint">(default image — pages/stages below can override this)</span>
+            <div class="kc-file-row">
+              <div class="kc-thumb" style="background-image:url('{{editingEvent.art}}');"></div>
+              <input type="text" id="event-art" value="{{editingEvent.art}}" placeholder="modules/pf2e-revamped-kingdoms/images/example.jpg or a full https:// URL">
+              <button type="button" class="kc-browse-btn" data-action="browseImage" data-target="event-art">Browse</button>
+            </div>
+          </label>
+          <label>Background Tint <span class="kc-field-hint">(the image fades into this color — pick something close to its dominant tone)</span>
+            <div class="kc-color-row">
+              <input type="color" id="event-tint-color" value="{{editingEvent.tintColor}}">
+              <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper" title="Pick a color from anywhere on screen">&#128167;</button>
+            </div>
+          </label>
+
+          <fieldset class="kc-event-type">
+            <legend>Delivery type</legend>
+            {{#each editingEvent.typeChoices}}
+              <label class="kc-radio">
+                <input type="radio" name="event-type" class="event-type-radio" value="{{this.id}}" {{#if this.checked}}checked{{/if}}>
+                {{this.label}}
+              </label>
+            {{/each}}
+          </fieldset>
+
+          <div data-event-type-section="single" {{#unless editingEvent.isSingle}}hidden{{/unless}}>
+            <label>Body <span class="kc-field-hint">(HTML allowed)</span>
+              <textarea id="event-body" rows="6">{{editingEvent.body}}</textarea>
+            </label>
+          </div>
+
+          <div data-event-type-section="multiscreen" {{#unless editingEvent.isMultiscreen}}hidden{{/unless}}>
+            <div class="kc-abilities">
+              <div class="kc-abilities__header">
+                <span>Pages <span class="kc-field-hint">(shown in order — Prev/Next during the turn)</span></span>
+                <button type="button" data-action="addPage">+ Add Page</button>
+              </div>
+              <div id="pages-list">
+                {{#each editingEvent.pages}}
+                  <div class="page-row">
+                    <input type="text" class="page-title" placeholder="Page title (optional — falls back to event title)" value="{{this.title}}">
+                    <div class="kc-file-row">
+                      <div class="kc-thumb" style="background-image:url('{{this.art}}');"></div>
+                      <input type="text" class="page-art" placeholder="Page image (optional — falls back to event art)" value="{{this.art}}">
+                      <button type="button" class="kc-browse-btn" data-action="browsePageImage">Browse</button>
+                    </div>
+                    <div class="kc-color-row">
+                      <input type="color" class="page-tint" value="{{#if this.tintColor}}{{this.tintColor}}{{else}}#1b2e1f{{/if}}">
+                      <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper" title="Pick a color from anywhere on screen">&#128167;</button>
+                    </div>
+                    <textarea class="page-body" rows="4" placeholder="Page body (HTML allowed)">{{this.body}}</textarea>
+                    <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+                  </div>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+
+          <div data-event-type-section="questline" {{#unless editingEvent.isQuestline}}hidden{{/unless}}>
+            <div class="kc-abilities">
+              <div class="kc-abilities__header">
+                <span>Stages <span class="kc-field-hint">(progress persists across kingdom turns — advanced one at a time, no going back)</span></span>
+                <button type="button" data-action="addStage">+ Add Stage</button>
+              </div>
+              <div id="stages-list">
+                {{#each editingEvent.stages}}
+                  <div class="stage-row">
+                    <input type="text" class="stage-title" placeholder="Stage title (optional — falls back to event title)" value="{{this.title}}">
+                    <div class="kc-file-row">
+                      <div class="kc-thumb" style="background-image:url('{{this.art}}');"></div>
+                      <input type="text" class="stage-art" placeholder="Stage image (optional — falls back to event art)" value="{{this.art}}">
+                      <button type="button" class="kc-browse-btn" data-action="browseStageImage">Browse</button>
+                    </div>
+                    <div class="kc-color-row">
+                      <input type="color" class="stage-tint" value="{{#if this.tintColor}}{{this.tintColor}}{{else}}#1b2e1f{{/if}}">
+                      <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper" title="Pick a color from anywhere on screen">&#128167;</button>
+                    </div>
+                    <textarea class="stage-body" rows="4" placeholder="Stage body (HTML allowed)">{{this.body}}</textarea>
+                    <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+                  </div>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+
+          <fieldset class="kc-event-conditions">
+            <legend>Random-pick conditions <span class="kc-field-hint">(matched against live kingdom state when the GM clicks "Pick Random" — leave all unchecked to make this event always eligible)</span></legend>
+            {{#each editingEvent.conditionChoices}}
+              <label class="kc-checkbox">
+                <input type="checkbox" class="event-condition-checkbox" value="{{this.id}}" {{#if this.checked}}checked{{/if}}>
+                {{this.label}}
+              </label>
+            {{/each}}
+          </fieldset>
+
+          <div class="kc-abilities" data-event-type-section="single,multiscreen" {{#if editingEvent.isQuestline}}hidden{{/if}}>
+            <div class="kc-abilities__header">
+              <span>Outcomes {{#if editingEvent.isMultiscreen}}<span class="kc-field-hint">(shown on the last page)</span>{{/if}}</span>
+              <button type="button" data-action="addOutcome">+ Add Outcome</button>
+            </div>
+            <div id="outcomes-list">
+              {{#each editingEvent.outcomes}}
+                <div class="outcome-row">
+                  <input type="text" class="outcome-label" placeholder="Label e.g. SUCCESS" value="{{this.label}}">
+                  <input type="text" class="outcome-text" placeholder="Effect text" value="{{this.text}}">
+                  <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+                </div>
+              {{/each}}
+            </div>
+          </div>
+
+          <div class="kc-form-actions">
+            <button type="button" class="kc-primary" data-action="saveEvent">Save Event</button>
+            <button type="button" data-action="cancelEvent">Cancel</button>
+          </div>
+        </div>
+      {{else}}
+        <p class="kc-hint">Select an event to edit, or click "New Event".</p>
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="kc-body" data-section-panel="buildings" {{#unless buildingsActive}}hidden{{/unless}}>
+    <div class="kc-list">
+      <button type="button" class="kc-new-btn" data-action="newBuilding">+ New Building</button>
+      {{#each buildings}}
+        <div class="kc-list-item">
+          <span class="kc-list-item__name">{{this.name}} <span class="kc-list-item__meta">({{this.category}}){{#if this.grantingNodeName}} &middot; &#128279; {{this.grantingNodeName}}{{/if}}</span></span>
+          <div class="kc-list-item__actions">
+            <button type="button" data-action="editBuilding" data-building-id="{{this.id}}">Edit</button>
+            <button type="button" class="kc-danger" data-action="deleteBuilding" data-building-id="{{this.id}}">Delete</button>
+          </div>
+        </div>
+      {{/each}}
+    </div>
+
+    <div class="kc-editor">
+      {{#if editingBuilding}}
+        <div class="kc-form" data-requires-faction-id="{{editingBuilding.requiresFactionId}}" data-invites-faction-id="{{editingBuilding.invitesFactionId}}">
+          <label>Name
+            <input type="text" id="building-name" value="{{editingBuilding.name}}" placeholder="Housing District">
+          </label>
+          <label>Category
+            <input type="text" id="building-category" value="{{editingBuilding.category}}" placeholder="General / Settlers / Woodsmen / Merchants / Tier 2">
+          </label>
+          <label>Traits <span class="kc-field-hint">(comma-separated)</span>
+            <input type="text" id="building-traits" value="{{editingBuilding.traitsJoined}}" placeholder="Housing, Settlers">
+          </label>
+
+          <label>Flags <span class="kc-field-hint">(comma-separated — marks non-trivial behavior for a future automation pass. Suggested: adjacency-bonus, adjacency-requirement, happiness-threshold, event-trait-trigger, escalating-cost, prerequisite-for-others, action-cost-modifier, sub-shops, consumes-action, storage, permanent-bonus, triggers-event)</span>
+            <input type="text" id="building-flags" value="{{editingBuilding.flagsJoined}}" placeholder="adjacency-bonus, happiness-threshold">
+          </label>
+
+          <div class="config-row">
+            <label class="kc-inline-label">Cost (KW)
+              <input type="number" id="building-cost" value="{{editingBuilding.cost}}">
+            </label>
+            <label class="kc-inline-label">Build time (turns)
+              <input type="number" id="building-time" value="{{editingBuilding.buildTime}}">
+            </label>
+            <label class="kc-inline-label">KW per turn once built
+              <input type="number" id="building-kw-per-turn" value="{{editingBuilding.kwPerTurn}}">
+            </label>
+            <label class="kc-inline-label">Extra KW per copy already built <span class="kc-field-hint">(0 = flat cost forever; e.g. 1 means the 2nd copy costs +1, the 3rd +2, etc.)</span>
+              <input type="number" id="building-escalation" value="{{editingBuilding.escalationPerCopy}}">
+            </label>
+          </div>
+
+          <label class="kc-checkbox">
+            <input type="checkbox" id="building-research-locked" {{#if editingBuilding.researchLocked}}checked{{/if}}>
+            Requires a research node to unlock <span class="kc-field-hint">(link it from that node's "Grants Building" field in the Research Tree)</span>
+          </label>
+
+          <div class="config-row">
+            <label class="kc-inline-label">Requires faction present
+              <select id="building-requires-faction" class="building-requires-faction">
+                <option value="">None</option>
+                {{#each factions}}
+                  <option value="{{this.id}}">{{this.name}}</option>
+                {{/each}}
+              </select>
+            </label>
+            <label class="kc-inline-label">Invites faction on build
+              <select id="building-invites-faction" class="building-invites-faction">
+                <option value="">None</option>
+                {{#each factions}}
+                  <option value="{{this.id}}">{{this.name}}</option>
+                {{/each}}
+              </select>
+            </label>
+          </div>
+
+          <label>Prerequisites <span class="kc-field-hint">(text shown to players; only the faction dropdown above is enforced by the macro)</span>
+            <input type="text" id="building-prereqs" value="{{editingBuilding.prerequisitesText}}">
+          </label>
+
+          <label>Tile image <span class="kc-field-hint">(path under modules/pf2e-revamped-kingdoms/images/, or a full URL)</span>
+            <div class="kc-file-row">
+              <div class="kc-thumb" style="background-image:url('{{editingBuilding.tileImage}}');"></div>
+              <input type="text" id="building-tile-image" value="{{editingBuilding.tileImage}}">
+              <button type="button" class="kc-browse-btn" data-action="browseImage" data-target="building-tile-image">Browse</button>
+            </div>
+          </label>
+
+          <div class="config-row" data-placement-mode="{{editingBuilding.placementMode}}">
+            <label class="kc-inline-label">Placement
+              <select id="building-placement-mode" class="building-placement-mode">
+                <option value="single">Single (one tile, full size)</option>
+                <option value="scatter">Scatter (3-5 small copies, random spots)</option>
+              </select>
+            </label>
+            <label class="kc-inline-label">X offset <span class="kc-field-hint">(fraction of tile size)</span>
+              <input type="number" step="0.05" id="building-offset-x" value="{{editingBuilding.offsetX}}">
+            </label>
+            <label class="kc-inline-label">Y offset <span class="kc-field-hint">(fraction of tile size)</span>
+              <input type="number" step="0.05" id="building-offset-y" value="{{editingBuilding.offsetY}}">
+            </label>
+            <label class="kc-inline-label">Scale <span class="kc-field-hint">(blank = module default)</span>
+              <input type="number" step="0.05" id="building-scale" value="{{editingBuilding.scale}}" placeholder="1.0">
+            </label>
+          </div>
+
+          <label>Effect <span class="kc-field-hint">(HTML allowed)</span>
+            <textarea id="building-effect" rows="6">{{editingBuilding.effect}}</textarea>
+          </label>
+
+          <div class="kc-form-actions">
+            <button type="button" class="kc-primary" data-action="saveBuilding">Save Building</button>
+            <button type="button" data-action="cancelBuilding">Cancel</button>
+          </div>
+        </div>
+      {{else}}
+        <p class="kc-hint">Select a building to edit, or click "New Building".</p>
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="kc-body" data-section-panel="transformations" {{#unless transformationsActive}}hidden{{/unless}}>
+    <div class="kc-list">
+      <button type="button" class="kc-new-btn" data-action="newTransformation">+ New Transformation</button>
+      <p class="kc-hint">Lets a placed district be converted in place into a different building — pick which from/to buildings apply. Gate it behind research the same way a locked building is, via that node's "Grants Transformation" field.</p>
+      {{#each transformations}}
+        <div class="kc-list-item">
+          <span class="kc-list-item__name">{{this.name}} <span class="kc-list-item__meta">({{this.fromBuildingName}} &rarr; {{this.toBuildingName}})</span></span>
+          <div class="kc-list-item__actions">
+            <button type="button" data-action="editTransformation" data-transformation-id="{{this.id}}">Edit</button>
+            <button type="button" class="kc-danger" data-action="deleteTransformation" data-transformation-id="{{this.id}}">Delete</button>
+          </div>
+        </div>
+      {{/each}}
+    </div>
+
+    <div class="kc-editor">
+      {{#if editingTransformation}}
+        <div class="kc-form">
+          <label>Name <span class="kc-field-hint">(the transformed district's display name)</span>
+            <input type="text" id="transformation-name" value="{{editingTransformation.name}}" placeholder="Arcane Academy">
+          </label>
+
+          <div class="config-row">
+            <label class="kc-inline-label">From building <span class="kc-field-hint">(what it can be applied to)</span>
+              <select id="transformation-from-building">
+                {{#each editingTransformation.buildingChoicesFrom}}
+                  <option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </label>
+            <label class="kc-inline-label">To building <span class="kc-field-hint">(what it becomes)</span>
+              <select id="transformation-to-building">
+                {{#each editingTransformation.buildingChoicesTo}}
+                  <option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </label>
+          </div>
+
+          <label>Icon <span class="kc-field-hint">(optional — leave blank to inherit the From building's own tile image in pickers)</span>
+            <div class="kc-file-row">
+              <div class="kc-thumb" style="background-image:url('{{#if editingTransformation.icon}}{{editingTransformation.icon}}{{else}}{{editingTransformation.fromBuildingIcon}}{{/if}}');"></div>
+              <input type="text" id="transformation-icon" value="{{editingTransformation.icon}}" placeholder="{{editingTransformation.fromBuildingIcon}}">
+              <button type="button" class="kc-browse-btn" data-action="browseImage" data-target="transformation-icon">Browse</button>
+            </div>
+          </label>
+
+          <div class="config-row">
+            <label class="kc-inline-label">Cost (KW) <span class="kc-field-hint">(separate from either building's own cost)</span>
+              <input type="number" id="transformation-kw-cost" value="{{editingTransformation.kwCost}}">
+            </label>
+            <label class="kc-inline-label">Turn timeout <span class="kc-field-hint">(kingdom turns to complete, like building a district)</span>
+              <input type="number" id="transformation-turn-timeout" value="{{editingTransformation.turnTimeout}}">
+            </label>
+          </div>
+
+          <label class="kc-checkbox">
+            <input type="checkbox" id="transformation-research-locked" {{#if editingTransformation.researchLocked}}checked{{/if}}>
+            Requires a research node to unlock <span class="kc-field-hint">(link it from that node's "Grants Transformation" field in the Research Tree)</span>
+          </label>
+
+          <div class="kc-form-actions">
+            <button type="button" class="kc-primary" data-action="saveTransformation">Save Transformation</button>
+            <button type="button" data-action="cancelTransformation">Cancel</button>
+          </div>
+        </div>
+      {{else}}
+        <p class="kc-hint">Select a transformation to edit, or click "New Transformation".</p>
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="kc-body" data-section-panel="factions" {{#unless factionsActive}}hidden{{/unless}}>
+    <div class="kc-list">
+      <button type="button" class="kc-new-btn" data-action="newFaction">+ New Faction</button>
+      {{#each factions}}
+        <div class="kc-list-item">
+          <span class="kc-list-item__name">{{this.name}} <span class="kc-list-item__meta">({{#if this.present}}present{{else}}not present{{/if}})</span></span>
+          <div class="kc-list-item__actions">
+            <button type="button" data-action="editFaction" data-faction-id="{{this.id}}">Edit</button>
+            <button type="button" class="kc-danger" data-action="deleteFaction" data-faction-id="{{this.id}}">Delete</button>
+          </div>
+        </div>
+      {{/each}}
+    </div>
+
+    <div class="kc-editor">
+      {{#if editingFaction}}
+        <div class="kc-form">
+          <label>Name
+            <input type="text" id="faction-name" value="{{editingFaction.name}}" placeholder="The Settlers">
+          </label>
+          <label>Portrait
+            <div class="kc-file-row">
+              <div class="kc-thumb" style="background-image:url('{{editingFaction.portrait}}');"></div>
+              <input type="text" id="faction-portrait" value="{{editingFaction.portrait}}" placeholder="modules/pf2e-revamped-kingdoms/images/example.jpg or a full https:// URL">
+              <button type="button" class="kc-browse-btn" data-action="browseImage" data-target="faction-portrait">Browse</button>
+            </div>
+          </label>
+          <label class="kc-checkbox">
+            <input type="checkbox" id="faction-present" {{#if editingFaction.present}}checked{{/if}}>
+            Present in the kingdom
+          </label>
+          <label>Effect at +3
+            <textarea id="faction-effect-high" rows="3">{{editingFaction.effectHigh}}</textarea>
+          </label>
+          <label>Effect at -3
+            <textarea id="faction-effect-low" rows="3">{{editingFaction.effectLow}}</textarea>
+          </label>
+
+          <div class="kc-form-actions">
+            <button type="button" class="kc-primary" data-action="saveFaction">Save Faction</button>
+            <button type="button" data-action="cancelFaction">Cancel</button>
+          </div>
+        </div>
+      {{else}}
+        <p class="kc-hint">Select a faction to edit, or click "New Faction". Happiness itself is adjusted from the main Kingdom window's reputation panel, not here.</p>
+      {{/if}}
+    </div>
+  </div>
+
+  <template id="ability-row-template">
+    <div class="ability-row">
+      <div class="config-row">
+        <input type="text" class="ability-title" placeholder="Ability name">
+        <input type="text" class="ability-costs" placeholder="Costs e.g. 1 or 2,3">
+        <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+      </div>
+      <textarea class="ability-description" placeholder="Description (HTML allowed: <p>, <ul><li>, <strong>, <em>)" rows="4"></textarea>
+      <div class="config-row ability-effects">
+        <label class="kc-inline-label">Proposed KW
+          <input type="number" class="ability-kw-effect" value="0">
+        </label>
+        <label class="kc-inline-label">Faction
+          <select class="ability-faction">
+            <option value="">None</option>
+            {{#each factions}}
+              <option value="{{this.id}}">{{this.name}}</option>
+            {{/each}}
+          </select>
+        </label>
+        <label class="kc-inline-label">Proposed happiness
+          <input type="number" class="ability-happiness-effect" value="0">
+        </label>
+      </div>
+    </div>
+  </template>
+
+  <template id="outcome-row-template">
+    <div class="outcome-row">
+      <input type="text" class="outcome-label" placeholder="Label e.g. SUCCESS">
+      <input type="text" class="outcome-text" placeholder="Effect text">
+      <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+    </div>
+  </template>
+
+  <template id="page-row-template">
+    <div class="page-row">
+      <input type="text" class="page-title" placeholder="Page title (optional — falls back to event title)">
+      <div class="kc-file-row">
+        <div class="kc-thumb"></div>
+        <input type="text" class="page-art" placeholder="Page image (optional — falls back to event art)">
+        <button type="button" class="kc-browse-btn" data-action="browsePageImage">Browse</button>
+      </div>
+      <div class="kc-color-row">
+        <input type="color" class="page-tint" value="#1b2e1f">
+        <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper" title="Pick a color from anywhere on screen">&#128167;</button>
+      </div>
+      <textarea class="page-body" rows="4" placeholder="Page body (HTML allowed)"></textarea>
+      <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+    </div>
+  </template>
+
+  <template id="stage-row-template">
+    <div class="stage-row">
+      <input type="text" class="stage-title" placeholder="Stage title (optional — falls back to event title)">
+      <div class="kc-file-row">
+        <div class="kc-thumb"></div>
+        <input type="text" class="stage-art" placeholder="Stage image (optional — falls back to event art)">
+        <button type="button" class="kc-browse-btn" data-action="browseStageImage">Browse</button>
+      </div>
+      <div class="kc-color-row">
+        <input type="color" class="stage-tint" value="#1b2e1f">
+        <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper" title="Pick a color from anywhere on screen">&#128167;</button>
+      </div>
+      <textarea class="stage-body" rows="4" placeholder="Stage body (HTML allowed)"></textarea>
+      <button type="button" class="icon-btn" data-action="removeRow">&times;</button>
+    </div>
+  </template>
+</div>

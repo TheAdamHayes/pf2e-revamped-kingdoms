@@ -1,0 +1,523 @@
+<div class="screen">
+  <header class="kingdom-header">
+    <div class="kingdom-header__photo"></div>
+    <div class="kingdom-header__overlay"></div>
+
+    {{#if isGM}}
+      <button type="button" class="kingdom-config-btn" data-action="openConfig" title="Configure Kingdom Data">&#9881;</button>
+      <button type="button" class="kingdom-config-btn kingdom-config-btn--pull" data-action="pullPlayersToScreen" title="Pull every connected player's Kingdom Management window to the front, jumped to the tab you're currently on">&#128226;</button>
+    {{/if}}
+
+    <div class="reputation-panel" data-action="toggleFactionMenu" role="button" tabindex="0" aria-label="View faction reputation">
+      <div class="reputation-panel__tick reputation-panel__tick--1"></div>
+      <div class="reputation-panel__tick reputation-panel__tick--2"></div>
+      <div class="reputation-panel__tick reputation-panel__tick--3"></div>
+      <div class="reputation-panel__baseline"></div>
+      <div class="reputation-panel__tick reputation-panel__tick--4"></div>
+      <div class="reputation-panel__tick reputation-panel__tick--5"></div>
+      <div class="reputation-panel__tick reputation-panel__tick--6"></div>
+
+      {{#each factions}}
+        <div class="reputation-panel__crest reputation-panel__crest--{{this.slot}}" data-faction-id="{{this.id}}" style="top: {{this.topPercent}}%;" aria-label="{{this.name}} reputation"></div>
+      {{/each}}
+    </div>
+
+    <h1 class="kingdom-header__title">{{kingdomName}}</h1>
+
+    <button type="button" class="buildings-browser-btn" data-action="toggleBuildingsBrowser" title="View available buildings">&#127959;</button>
+    <button type="button" class="buildings-browser-btn" data-action="openResearchTree" title="Open the Research Tree">&#129504;</button>
+
+    <div class="stat-badge">
+      <span class="stat-badge__total">{{kw}} KW</span>
+      <span class="stat-badge__delta">+ {{kwDelta}} KW</span>
+
+      <div class="kw-breakdown" hidden>
+        <h4>Next Turn</h4>
+        <ul>
+          <li><span>Manual adjustment</span><span>{{kwDeltaManual}} KW</span></li>
+          {{#each buildingIncomeBreakdown}}
+            <li><span>{{this.name}}{{#if this.count}} &times;{{this.count}}{{/if}}</span><span>+{{this.total}} KW</span></li>
+          {{/each}}
+          {{#each pendingKwEntries}}
+            <li class="kw-breakdown__pending"><span>{{this.domain}} &mdash; {{this.action}} <em>(pending)</em></span><span>{{this.kwEffect}} KW</span></li>
+          {{/each}}
+        </ul>
+        <p class="kw-breakdown__total"><span>Total</span><span>+{{kwDelta}} KW</span></p>
+        {{#if isGM}}<p class="kw-breakdown__hint">Right-click to edit.</p>{{/if}}
+      </div>
+
+      {{#if isGM}}
+        <div class="kw-editor" hidden>
+          <label>KW <input type="number" id="kw-input" value="{{kw}}"></label>
+          <label>+KW next turn (manual) <input type="number" id="kw-delta-input" value="{{kwDeltaManual}}"></label>
+          {{#if kwBuildingIncome}}<p class="kw-editor__note">+{{kwBuildingIncome}} more from completed buildings, added automatically.</p>{{/if}}
+          <button type="button" data-action="saveKw">Save</button>
+        </div>
+      {{/if}}
+    </div>
+
+    <nav class="tab-bar" aria-label="Kingdom stages">
+      {{#each tabs}}
+        <button type="button" class="tab {{#if this.active}}tab--active{{else}}tab--ghost{{/if}}" data-view="{{this.key}}">{{this.label}}</button>
+      {{/each}}
+    </nav>
+  </header>
+
+  <!-- Faction reputation menu — opened by clicking the panel above.
+       Only present factions show here; the GM can invite absent ones
+       via the small picker at the bottom instead of cluttering the
+       main display with greyed-out cards. -->
+  <div class="faction-menu" hidden>
+    <button type="button" class="faction-menu__close" data-action="toggleFactionMenu" aria-label="Close">&times;</button>
+    <div class="faction-menu__inner">
+      {{#each factions}}
+        <article class="faction-card faction-menu__card" data-faction-id="{{this.id}}">
+          <div class="faction-card__banner-top"></div>
+          <div class="faction-card__portrait" {{#if this.portrait}}style="background-image:url('{{this.portrait}}');"{{/if}}></div>
+          <h2 class="faction-card__title">{{this.name}}</h2>
+          <div class="faction-menu__happiness">
+            {{#if @root.isGM}}
+              <button type="button" class="faction-menu__step" data-action="adjustHappiness" data-faction-id="{{this.id}}" data-delta="-1" aria-label="Decrease happiness">&minus;</button>
+            {{/if}}
+            <span class="faction-menu__happiness-value">{{this.happiness}}</span>
+            {{#if @root.isGM}}
+              <button type="button" class="faction-menu__step" data-action="adjustHappiness" data-faction-id="{{this.id}}" data-delta="1" aria-label="Increase happiness">+</button>
+            {{/if}}
+          </div>
+          <div class="faction-menu__tax-badge" title="Set by the Treasurer's Set Taxes action">Taxes: {{this.taxLabel}}</div>
+          <div class="faction-card__actions">
+            <div class="faction-card__ability">
+              <h3 class="faction-card__ability-title">Effect at +3</h3>
+              <p>{{this.effectHigh}}</p>
+            </div>
+            <div class="faction-card__ability">
+              <h3 class="faction-card__ability-title">Effect at -3</h3>
+              <p>{{this.effectLow}}</p>
+            </div>
+            {{#if this.pendingChanges.length}}
+              <div class="faction-card__ability faction-menu__pending">
+                <h3 class="faction-card__ability-title">Pending this round</h3>
+                {{#each this.pendingChanges}}
+                  <p>{{this.domain}} &mdash; {{this.action}}: {{this.happinessEffect}}</p>
+                {{/each}}
+              </div>
+            {{/if}}
+          </div>
+          {{#if @root.isGM}}
+            <button type="button" class="faction-menu__presence-toggle" data-action="toggleFactionPresent" data-faction-id="{{this.id}}">Remove from Kingdom</button>
+          {{/if}}
+        </article>
+      {{/each}}
+
+      {{#unless factions.length}}
+        <p class="faction-menu__empty">No factions have joined your kingdom yet.</p>
+      {{/unless}}
+    </div>
+
+    {{#if isGM}}
+      {{#if absentFactions.length}}
+        <div class="faction-menu__invite">
+          <select id="invite-faction-select">
+            {{#each absentFactions}}
+              <option value="{{this.id}}">{{this.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="inviteFaction">+ Invite</button>
+        </div>
+      {{/if}}
+    {{/if}}
+  </div>
+
+  <!-- Buildings browser — a read-only reference for players: what's
+       available, thumbnails, costs, and requirements. -->
+  <div class="buildings-browser" hidden>
+    <button type="button" class="buildings-browser__close" data-action="toggleBuildingsBrowser" aria-label="Close">&times;</button>
+    <h2 class="buildings-browser__title">Available Buildings</h2>
+    <div class="buildings-browser__grid">
+      {{#each buildingsBrowser}}
+        <article class="building-card {{#unless this.available}}building-card--unavailable{{/unless}}" data-action="viewBuildingDetail" data-building-id="{{this.id}}" role="button" tabindex="0">
+          <div class="building-card__thumb" {{#if this.tileImage}}style="background-image:url('{{this.tileImage}}');"{{/if}}></div>
+          <div class="building-card__body">
+            <h3 class="building-card__name">{{this.name}}</h3>
+            <p class="building-card__meta">{{this.category}} &middot; {{this.cost}} KW &middot; {{this.buildTime}} turn(s)</p>
+            {{#if this.traits.length}}<p class="building-card__traits">{{this.traitsJoined}}</p>{{/if}}
+            {{#if this.prerequisitesText}}<p class="building-card__prereqs">{{this.prerequisitesText}}</p>{{/if}}
+            <span class="building-card__status {{#if this.available}}building-card__status--yes{{else}}building-card__status--no{{/if}}">
+              {{#if this.available}}Available{{else}}Not yet available{{/if}}
+            </span>
+          </div>
+        </article>
+      {{/each}}
+    </div>
+
+    <!-- Building detail modal — nested INSIDE the browser panel (not a
+         sibling) so it's constrained to this panel's own bounds rather
+         than escaping to the whole app window/viewport. Populated and
+         shown via direct DOM manipulation on card click (see
+         #onViewBuildingDetail), not a re-render, so it doesn't disturb
+         this panel's own hidden-attribute toggle state. -->
+    <div class="building-detail-modal" hidden>
+      <div class="building-detail-modal__backdrop" data-action="closeBuildingDetail"></div>
+      <div class="building-detail-modal__panel">
+        <button type="button" class="building-detail-modal__close" data-action="closeBuildingDetail" aria-label="Close">&times;</button>
+        <div class="building-detail-modal__thumb" id="building-detail-thumb"></div>
+        <div class="building-detail-modal__body">
+          <h3 id="building-detail-name"></h3>
+          <p class="building-detail-modal__meta" id="building-detail-meta"></p>
+          <p class="building-detail-modal__traits" id="building-detail-traits"></p>
+          <p class="building-detail-modal__prereqs" id="building-detail-prereqs"></p>
+          <span class="building-card__status" id="building-detail-status"></span>
+          <div class="building-detail-modal__effect" id="building-detail-effect"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DECIDE: the kingdom's domains, loaded from world settings. -->
+  <section class="card-row" data-view-panel="decide" aria-label="Domains" {{#unless showDecide}}hidden{{/unless}}>
+    {{#each domains}}
+      <article class="faction-card" data-domain-id="{{this.id}}">
+        <div class="faction-card__banner-top"></div>
+        <div class="faction-card__portrait {{#if this.remote}}faction-card__portrait--remote{{/if}}" {{#if this.portrait}}style="background-image:url('{{this.portrait}}');"{{/if}}></div>
+        <h2 class="faction-card__title">{{this.name}}</h2>
+        <div class="faction-card__tags">
+          {{#each this.tags}}<span>{{this}}</span>{{/each}}
+        </div>
+        <div class="faction-card__actions">
+          {{#each this.abilities}}
+            <div class="faction-card__ability">
+              <h3 class="faction-card__ability-title">
+                {{#each this.costsForDisplay}}<span class="act-icon" role="img" aria-label="{{this.value}} action">{{this.value}}</span>{{#unless this.isLast}}<span class="act-sep">/</span>{{/unless}}{{/each}}
+                <span>{{this.title}}</span>
+              </h3>
+              {{{this.description}}}
+            </div>
+          {{/each}}
+          {{#if this.note}}<p class="faction-card__note">{{this.note}}</p>{{/if}}
+        </div>
+      </article>
+    {{/each}}
+  </section>
+
+  <!-- SELECT: a static shell — content is built by kingdom.js when a
+       domain is clicked, entirely via DOM methods (no re-render), for
+       performance. Universal actions are appended into the pool here too,
+       never shown on the Decide cards above. -->
+  <section class="page-view select-view" data-view-panel="select" aria-label="Choose actions" hidden>
+    <div class="select-sheet">
+      <button type="button" class="select-back" data-action="selectBack">&larr; Back</button>
+
+      <header class="select-head">
+        <div class="select-head__portrait" id="select-portrait"></div>
+        <h2 class="select-head__title" id="select-title"></h2>
+      </header>
+
+      <div class="select-body">
+        <div class="select-pool" id="select-pool" aria-label="Available actions"></div>
+        <div class="select-divider" aria-hidden="true"></div>
+        <div class="select-slots">
+          <div class="slot-grid" id="slot-grid"></div>
+          <button type="button" class="confirm-btn" id="confirm-btn" data-action="confirmActions" disabled>Confirm</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESOLVE: shared, persistent timeline. Drag to reorder while
+       unlocked; GM locks the order, then steps through resolution. -->
+  <section class="page-view resolve-view" data-view-panel="resolve" aria-label="Resolve" {{#unless showResolve}}hidden{{/unless}}>
+    <div class="resolve-toolbar">
+      {{#if resolveHasEntries}}
+        {{#unless resolveResolving}}
+          {{#if isGM}}
+            <button type="button" class="resolve-toolbar__btn" data-action="toggleLock">
+              {{#if resolveLocked}}Unlock Order{{else}}Lock Order{{/if}}
+            </button>
+            {{#if resolveLocked}}
+              <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="startResolving">Start Resolving</button>
+            {{/if}}
+          {{/if}}
+          {{#if resolveLocked}}<span class="resolve-toolbar__lock-note">&#128274; Order locked</span>{{/if}}
+        {{/unless}}
+      {{/if}}
+
+    </div>
+
+    <div class="timeline-wrap" {{#if resolveResolving}}hidden{{/if}}>
+      <p class="timeline-empty" {{#if resolveHasEntries}}hidden{{/if}}>
+        Nothing committed yet. Choose a domain in the Decide stage and confirm its actions.
+      </p>
+      <div class="timeline" {{#unless resolveHasEntries}}hidden{{/unless}}>
+        <div class="timeline__track">
+          <div class="timeline__spine" aria-hidden="true"></div>
+          {{#each resolveEntries}}
+            <div class="tl-item {{#if this.isUp}}tl-item--up{{else}}tl-item--down{{/if}}" data-entry-id="{{this.id}}" {{#unless ../resolveLocked}}draggable="true"{{/unless}}>
+              <article class="tl-card {{#if this.resolved}}tl-card--resolved{{/if}}" tabindex="0" {{#if this.art}}style="background-image:url('{{this.art}}');"{{/if}}>
+                <span class="tl-card__veil"></span>
+                <span class="tl-card__domain">{{this.domain}}</span>
+                <span class="tl-card__action"><i class="tl-card__mark"></i>{{this.action}}</span>
+                {{#if this.showCost}}<span class="tl-card__cost" title="{{this.cost}} actions">{{this.cost}}</span>{{/if}}
+              </article>
+              <span class="tl-node"></span>
+            </div>
+          {{/each}}
+        </div>
+      </div>
+    </div>
+
+    <div class="resolve-wizard" {{#unless resolveResolving}}hidden{{/unless}}>
+      {{#if resolveCurrentEntry}}
+        <div class="resolve-wizard__progress">Step {{resolveStepDisplay}} of {{resolveTotal}}{{#if resolveCurrentEntry.resolved}} &mdash; &#10003; Resolved{{/if}}</div>
+
+        <div class="resolve-wizard__card" {{#if resolveCurrentEntry.art}}style="background-image:url('{{resolveCurrentEntry.art}}');"{{/if}}>
+          <span class="resolve-wizard__veil"></span>
+          <div class="resolve-wizard__content">
+            <h2 class="resolve-wizard__domain">{{resolveCurrentEntry.domain}}</h2>
+            <h3 class="resolve-wizard__action">{{resolveCurrentEntry.action}}</h3>
+            <div class="resolve-wizard__description">{{{resolveCurrentEntry.description}}}</div>
+          </div>
+        </div>
+
+        {{#if resolveCurrentEntry.reminderMessage}}
+          <div class="resolve-wizard__reminder">&#128161; {{resolveCurrentEntry.reminderMessage}}</div>
+        {{/if}}
+
+        {{#if resolveCurrentEntry.isClaimHexEntry}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="claimHex">Claim a Hex on the Map</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isBuildDistrictEntry}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="buildDistrict">Build a District on the Map</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isExpediteLabour}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerExpediteLabour">Expedite a District</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isMarkReconnoitered}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerMarkReconnoitered">Mark Hex Reconnoitered</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isUpgradeBuilding}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerUpgradeBuilding">Upgrade a District</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isMoveDistrict}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerMoveDistrict">Move Two Districts</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isApplyTransformation}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerApplyTransformation">Apply a Transformation</button>
+        {{/if}}
+        {{#if resolveCurrentEntry.isLevelUpStore}}
+          <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="triggerLevelUpStore">Level Up a Store</button>
+        {{/if}}
+
+        {{#if isGM}}
+          {{#if resolveCurrentEntry.isIssueSubsidy}}
+            <div class="resolve-wizard__contextual">
+              <label>Which action is this subsidizing?
+                <input type="text" id="subsidy-target-note" placeholder="e.g. Levy Taxes on the Settlers">
+              </label>
+              <p class="resolve-wizard__reminder-inline">&#128161; Hey! Looks like we need to reduce that action's KW cost by 2 when you apply it.</p>
+            </div>
+          {{/if}}
+
+          {{#if resolveCurrentEntry.isSetTaxes}}
+            <div class="resolve-wizard__contextual">
+              <p class="resolve-wizard__contextual-hint">Set each faction's standing tax level. This just configures Levy Taxes — it doesn't apply anything by itself.</p>
+              {{#each factions}}
+                <div class="resolve-wizard__tax-row">
+                  <span class="resolve-wizard__tax-faction">{{this.name}}</span>
+                  <div class="resolve-wizard__tax-buttons">
+                    {{#each @root.taxLevelKeys}}
+                      <button type="button" class="resolve-wizard__tax-btn {{#if (eq this ../taxLevel)}}is-active{{/if}}" data-action="setTaxLevel" data-faction-id="{{../id}}" data-level="{{this}}">{{this}}</button>
+                    {{/each}}
+                  </div>
+                  <span class="resolve-wizard__tax-current">Currently: {{this.taxLabel}}</span>
+                </div>
+              {{/each}}
+            </div>
+          {{/if}}
+
+          {{#if resolveCurrentEntry.isLevyTaxes}}
+            <div class="resolve-wizard__contextual">
+              {{#if resolveCurrentEntry.isLevyAll}}
+                <p class="resolve-wizard__contextual-hint">3 actions spent — this levies every present faction with a tax level set, all at once.</p>
+                <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="applyLevyAll">Levy All Factions</button>
+              {{else}}
+                <label>Faction
+                  <select id="levy-faction-select">
+                    <option value="">&mdash; choose &mdash;</option>
+                    {{#each factions}}
+                      <option value="{{this.id}}">{{this.name}} (taxes: {{this.taxLabel}})</option>
+                    {{/each}}
+                  </select>
+                </label>
+                <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="applyLevy">Apply Levy</button>
+              {{/if}}
+            </div>
+          {{/if}}
+
+          {{#if resolveCurrentEntry.isWartimeEfforts}}
+            <div class="resolve-wizard__contextual">
+              <label class="kc-checkbox">
+                <input type="checkbox" data-action="toggleAtWar" {{#if atWar}}checked{{/if}}>
+                Kingdom is currently at war
+              </label>
+              <label>Faction
+                <select id="wartime-faction-select">
+                  <option value="">&mdash; choose &mdash;</option>
+                  {{#each factions}}
+                    <option value="{{this.id}}">{{this.name}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="applyWartime">Apply (+2 KW, {{#if atWar}}-1{{else}}-2{{/if}} happiness)</button>
+            </div>
+          {{/if}}
+
+          {{#if resolveCurrentEntry.isAddressPopulace}}
+            <div class="resolve-wizard__contextual">
+              <p class="resolve-wizard__contextual-hint">Suppressing this turn's negative effects from a hostile faction is a GM call — no button for that part. Bribing to reset happiness is below.</p>
+              <label>Faction to bribe
+                <select id="bribe-faction-select">
+                  <option value="">&mdash; choose &mdash;</option>
+                  {{#each factions}}
+                    <option value="{{this.id}}">{{this.name}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="applyBribe">Bribe (3 KW &rarr; happiness to 0)</button>
+            </div>
+          {{/if}}
+
+          {{#if resolveCurrentEntry.isPostEffect}}
+            <div class="resolve-wizard__contextual">
+              <p class="resolve-wizard__contextual-hint">Posts a draggable effect to chat — drag it onto a player's token to apply.</p>
+              <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="postPlayerEffect">Post "{{resolveCurrentEntry.playerEffect.name}}" to Chat</button>
+            </div>
+          {{/if}}
+
+          <button type="button" class="resolve-wizard__show-more" data-action="toggleShowMore">Show more (manual KW / happiness / custom effect)</button>
+          <div class="resolve-wizard__manual" hidden>
+            <div class="resolve-wizard__apply">
+              <div class="resolve-wizard__apply-row">
+                <label>KW change</label>
+                <input type="number" id="wizard-kw-input" value="{{resolveCurrentEntry.kwEffect}}">
+                <button type="button" data-action="applyKw">Apply</button>
+              </div>
+              <div class="resolve-wizard__apply-row">
+                <label>Faction</label>
+                <select id="wizard-faction-select" data-selected="{{resolveCurrentEntry.happinessFactionId}}">
+                  <option value="">&mdash; none &mdash;</option>
+                  {{#each factions}}
+                    <option value="{{this.id}}">{{this.name}}</option>
+                  {{/each}}
+                </select>
+                <label>Happiness</label>
+                <input type="number" id="wizard-happiness-input" value="{{resolveCurrentEntry.happinessEffect}}">
+                <button type="button" data-action="applyHappiness">Apply</button>
+              </div>
+            </div>
+
+            <div class="resolve-wizard__custom-effect">
+              <p class="resolve-wizard__contextual-hint">Anything else that should grant players an effect — describe it and post it, GM's judgment on exact numbers.</p>
+              <input type="text" id="custom-effect-name" placeholder="Effect name">
+              <textarea id="custom-effect-description" rows="2" placeholder="Effect description (optional)"></textarea>
+              <button type="button" class="resolve-toolbar__btn" data-action="postCustomEffect">Post Custom Effect to Chat</button>
+            </div>
+          </div>
+        {{/if}}
+
+        <div class="resolve-wizard__nav">
+          {{#if isGM}}
+            <button type="button" data-action="stepNav" data-dir="prev" {{#if resolveStepIsFirst}}disabled{{/if}}>&larr; Prev</button>
+            {{#if resolveIsLastStep}}
+              <button type="button" class="resolve-wizard__finish" data-action="finishTurn">Finish Turn</button>
+            {{else}}
+              <button type="button" data-action="stepNav" data-dir="next">Next &rarr;</button>
+            {{/if}}
+          {{/if}}
+        </div>
+      {{/if}}
+    </div>
+  </section>
+
+  <!-- EVENT -->
+  <section class="page-view event-view" data-view-panel="event" aria-label="Event" {{#unless showEvent}}hidden{{/unless}}>
+    {{#if currentEvent}}
+      <div class="event-scene" style="background:
+          radial-gradient(90% 120% at 18% 50%, color-mix(in srgb, {{currentEvent.displayTint}} 55%, transparent), transparent 62%),
+          linear-gradient(180deg, {{currentEvent.displayTint}} 0%, color-mix(in srgb, {{currentEvent.displayTint}} 70%, black) 100%);">
+        <div class="event-art" aria-hidden="true" {{#if currentEvent.displayArt}}style="background-image:url('{{currentEvent.displayArt}}');"{{/if}}></div>
+        <div class="event-copy">
+          {{#if currentEvent.isMultiscreen}}
+            <p class="event-progress">Page {{currentEvent.pageDisplay}} of {{currentEvent.pageCount}}</p>
+          {{/if}}
+          {{#if currentEvent.isQuestline}}
+            <p class="event-progress">Stage {{currentEvent.stageDisplay}} of {{currentEvent.stageCount}}{{#if currentEvent.isLastStage}} &mdash; Final Stage{{/if}}</p>
+          {{/if}}
+          <h2 class="event-title">{{currentEvent.displayTitle}}</h2>
+          <div class="event-body-wrap">
+            {{{currentEvent.displayBody}}}
+            {{#if currentEvent.showOutcomes}}
+              <p class="event-outcomes">
+                {{#each currentEvent.outcomes}}
+                  <span><strong>{{this.label}}:</strong> {{this.text}}</span>
+                {{/each}}
+              </p>
+            {{/if}}
+          </div>
+        </div>
+
+        {{#if isGM}}
+          <div class="event-scene__controls">
+            {{#if currentEvent.isMultiscreen}}
+              <button type="button" class="event-scene__nav" data-action="eventPrevPage" {{#if currentEvent.isFirstPage}}disabled{{/if}}>&larr; Prev</button>
+              <button type="button" class="event-scene__nav" data-action="eventNextPage" {{#if currentEvent.isLastPage}}disabled{{/if}}>Next &rarr;</button>
+            {{/if}}
+            {{#if currentEvent.isQuestline}}
+              <button type="button" class="event-scene__nav event-scene__nav--primary" data-action="advanceQuestline" {{#if currentEvent.isLastStage}}disabled{{/if}}>Advance Quest &rarr;</button>
+            {{/if}}
+            <button type="button" class="event-scene__change" data-action="changeEvent">Change Event</button>
+          </div>
+        {{/if}}
+      </div>
+    {{else if showEventPicker}}
+      <div class="event-picker">
+        <h2 class="page-view__title">Pick this turn's event</h2>
+        {{#if isGM}}
+          {{#if allEvents.length}}
+            <div class="event-picker__random">
+              <button type="button" class="resolve-toolbar__btn resolve-toolbar__btn--primary" data-action="pickRandomEvent">Pick Random (Matching Kingdom State)</button>
+              <p class="kc-hint">Favors events whose conditions match the kingdom's current state (KW, faction happiness, war status) — set those per-event in Kingdom Configuration. Events with no conditions are always eligible.</p>
+            </div>
+            <div class="event-picker__categories">
+              {{#each eventCategories}}
+                <div class="event-picker__category">
+                  <h3 class="event-picker__category-title">{{this.name}}</h3>
+                  <div class="event-picker__grid">
+                    {{#each this.events}}
+                      <article class="event-picker-card" data-action="selectEventCard" data-event-id="{{this.id}}" role="button" tabindex="0">
+                        <div class="event-picker-card__thumb" {{#if this.art}}style="background-image:url('{{this.art}}');"{{/if}}></div>
+                        <div class="event-picker-card__body">
+                          <h4 class="event-picker-card__title">{{this.title}}</h4>
+                          <span class="event-picker-card__type event-picker-card__type--{{this.type}}">{{this.typeLabel}}</span>
+                          {{#if this.questlineBadge}}<span class="event-picker-card__progress">{{this.questlineBadge}}</span>{{/if}}
+                        </div>
+                      </article>
+                    {{/each}}
+                  </div>
+                </div>
+              {{/each}}
+            </div>
+          {{else}}
+            <p class="page-view__body">No events configured yet — add some from the Kingdom Configuration screen.</p>
+          {{/if}}
+        {{else}}
+          <p class="page-view__body">Waiting for the GM to pick this turn's event.</p>
+        {{/if}}
+      </div>
+    {{else}}
+      <div class="page-view__inner">
+        <h2 class="page-view__title">No events yet</h2>
+        <p class="page-view__body">Ask your GM to add one from the Kingdom Configuration screen.</p>
+      </div>
+    {{/if}}
+  </section>
+</div>

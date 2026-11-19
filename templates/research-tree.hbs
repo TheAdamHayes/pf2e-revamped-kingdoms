@@ -1,0 +1,446 @@
+<div class="research-tree"
+  style="
+    --rt-canvas-bg: {{config.canvasBg}};
+    --rt-line-color: {{config.lineColor}};
+    --rt-line-active: {{config.lineActiveColor}};
+    --rt-line-width: {{config.lineWidth}}px;
+    --rt-node-bg: {{config.nodeBg}};
+    --rt-node-text: {{config.nodeText}};
+    --rt-node-border: {{config.nodeBorderColor}};
+    --rt-node-border-width: {{config.nodeBorderWidth}}px;
+    --rt-accent: {{config.accentColor}};
+    --rt-glow: {{glowMult}};
+  ">
+
+  <style>
+    /* research-canvas/-connection/-node base coloring is handled in
+       main.css via the --rt-* custom properties set on .research-tree
+       above (including the shaped ::before layer nodes use for their
+       border/background — see main.css for why that's split out from
+       .research-node itself). Only the unlock-button progress-bar
+       plumbing lives here, since it isn't styled in main.css at all. */
+    .research-connection {
+      stroke: var(--rt-line-color);
+      stroke-width: var(--rt-line-width);
+    }
+    .research-connection--active {
+      stroke: var(--rt-line-active);
+    }
+
+    .research-node__unlock {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .research-node__unlock-bar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: var(--progress, 0%);
+      background: rgba(255, 255, 255, 0.4);
+      pointer-events: none;
+      transition: width 0.05s linear;
+    }
+
+    .research-node__unlock-text {
+      position: relative;
+      pointer-events: none;
+    }
+  </style>
+
+  <header class="research-tree__header">
+    <div class="research-points">
+      <span class="research-points__trigger" data-action="togglePointsEditor"
+        title="{{#if isGM}}Click to edit{{/if}}">
+        <strong>{{points}}</strong> Research Points
+      </span>
+      {{#if isGM}}
+      <div class="research-points__editor" hidden>
+        <input type="number" id="research-points-input" value="{{points}}">
+        <button type="button" data-action="savePoints">Save</button>
+      </div>
+      {{/if}}
+    </div>
+
+    <div class="research-tree__zoom-controls">
+      <button type="button" class="research-tree__zoom-btn" data-action="zoomOut" title="Zoom out">&minus;</button>
+      <button type="button" class="research-tree__zoom-btn" data-action="zoomReset"
+        title="Reset zoom">{{zoomPercent}}%</button>
+      <button type="button" class="research-tree__zoom-btn" data-action="zoomIn" title="Zoom in">&plus;</button>
+    </div>
+
+    {{#if isGM}}
+    <div class="research-tree__gm-controls">
+      <button type="button" class="resolve-toolbar__btn {{#if editMode}}resolve-toolbar__btn--primary{{/if}}"
+        data-action="toggleEditMode">
+        {{#if editMode}}Exit Edit Mode{{else}}Edit Mode{{/if}}
+      </button>
+      {{#if editMode}}
+      <button type="button" class="resolve-toolbar__btn" data-action="newNode">+ New Node</button>
+      <button type="button" class="resolve-toolbar__btn" data-action="newRegion">+ New Region</button>
+      <button type="button" class="resolve-toolbar__btn" data-action="newImage">+ New Image</button>
+      <button type="button" class="resolve-toolbar__btn" data-action="toggleConfig"
+        title="Tree Configuration">&#9881;</button>
+      {{/if}}
+    </div>
+    {{/if}}
+  </header>
+
+  <div class="research-tree__body">
+    <div class="research-canvas" data-bg-style="{{config.bgStyle}}">
+      <div class="research-canvas__scaler">
+        <div class="research-canvas__inner research-canvas__inner--bordered" style="width: {{canvasWidth}}px; height: {{canvasHeight}}px;">
+
+          {{#each regions}}
+          {{#if this.isImage}}
+          <div class="research-region research-image {{#if @root.editMode}}research-region--editable{{/if}}"
+            data-region-id="{{this.id}}"
+            style="left: {{this.x}}px; top: {{this.y}}px; width: {{this.width}}px; height: {{this.height}}px; z-index: {{this.zIndex}}; border: none; background: transparent; opacity: {{this.opacityPct}}; {{#if this.edgeFade}}mask-image: radial-gradient(ellipse, black {{this.solidPct}}%, transparent 100%); -webkit-mask-image: radial-gradient(ellipse, black {{this.solidPct}}%, transparent 100%);{{/if}}">
+            <img src="{{this.imagePath}}"
+              style="width: 100%; height: 100%; object-fit: cover; pointer-events: none; border-radius: inherit;">
+            {{#if @root.editMode}}
+            <span class="research-region__title" data-action="selectRegion" data-region-id="{{this.id}}"
+              style="color: white; text-shadow: 0 0 4px black, 0 0 2px black;">Edit Image</span>
+            <span class="research-region__handle"></span>
+            {{/if}}
+          </div>
+          {{else}}
+          <div class="research-region {{#if @root.editMode}}research-region--editable{{/if}}"
+            data-region-id="{{this.id}}"
+            style="left: {{this.x}}px; top: {{this.y}}px; width: {{this.width}}px; height: {{this.height}}px; z-index: 0; border-color: {{this.color}}; background: color-mix(in srgb, {{this.color}} {{this.bgOpacityPct}}%, transparent);">
+            <span class="research-region__title" {{#if @root.editMode}}data-action="selectRegion"
+              data-region-id="{{this.id}}" {{/if}} style="color: {{this.color}};">{{this.title}}</span>
+            {{#if @root.editMode}}<span class="research-region__handle"></span>{{/if}}
+          </div>
+          {{/if}}
+          {{/each}}
+
+          <svg class="research-connections" width="{{canvasWidth}}" height="{{canvasHeight}}"
+            style="position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;">
+            {{#each connections}}
+            <line x1="{{this.x1}}" y1="{{this.y1}}" x2="{{this.x2}}" y2="{{this.y2}}"
+              class="research-connection {{@root.lineStyleClass}} {{#if this.active}}research-connection--active{{/if}}"
+              data-from="{{this.fromId}}" data-to="{{this.toId}}" />
+            {{/each}}
+          </svg>
+
+          {{#each nodes}}
+          <div
+            class="research-node {{@root.nodeShapeClass}} research-node--tier-{{this.tier}} {{#if this.isLocked}}research-node--locked{{else}}research-node--unlocked{{/if}} {{#if this.isAvailable}}research-node--available{{/if}} {{#if this.isSelected}}research-node--selected{{/if}} {{#if @root.editMode}}research-node--editable{{/if}}"
+            data-node-id="{{this.id}}" {{#if @root.editMode}}data-action="selectNode" {{/if}}
+            style="left: {{this.x}}px; top: {{this.y}}px; width: {{this.size}}px; height: {{this.size}}px; z-index: 2;">
+            {{#if this.icon}}
+            <img class="research-node__icon" src="{{this.icon}}" alt="">
+            {{/if}}
+            {{#if @root.editMode}}
+            <span class="research-node__link-handle" data-node-id="{{this.id}}"
+              title="Drag onto another node to link them as a prerequisite">+</span>
+            {{/if}}
+            <div class="research-node__caption">
+              <span class="research-node__name">{{this.name}}</span>
+              <span class="research-node__cost">{{this.cost}} pt{{#if (gt this.cost 1)}}s{{/if}}</span>
+              {{#if this.isLocked}}
+              {{#if this.prereqsMet}}
+              {{#if @root.isGM}}
+              <button type="button" class="research-node__unlock" data-node-id="{{this.id}}" data-cost="{{this.cost}}"
+                {{#unless this.canAfford}}disabled{{/unless}}>
+                <div class="research-node__unlock-bar"></div>
+                <span class="research-node__unlock-text">Hold to Unlock</span>
+              </button>
+              {{else}}
+              <span class="research-node__status">Available</span>
+              {{/if}}
+              {{else}}
+              <span class="research-node__status research-node__status--locked">&#128274; Locked</span>
+              {{/if}}
+              {{else}}
+              <span class="research-node__status research-node__status--unlocked">&#10003; Unlocked</span>
+              {{/if}}
+            </div>
+          </div>
+          {{/each}}
+        </div>
+      </div>
+    </div>
+
+    {{#if editingNode}}
+    <div class="research-editor">
+      <h3>{{#if editingNode._isNew}}New Node{{else}}Edit Node{{/if}}</h3>
+      <label>Name
+        <input type="text" id="node-name" value="{{editingNode.name}}">
+      </label>
+      <label>Description
+        <textarea id="node-description" rows="3">{{editingNode.description}}</textarea>
+      </label>
+      <label>Cost (research points)
+        <input type="number" id="node-cost" value="{{editingNode.cost}}">
+      </label>
+      <label>Tier <span class="kc-field-hint">(node size &amp; visual importance)</span>
+        <select id="node-tier">
+          <option value="small" {{#if (eq editingNode.tier "small")}}selected{{/if}}>Small</option>
+          <option value="medium" {{#if (eq editingNode.tier "medium")}}selected{{/if}}>Medium (default)</option>
+          <option value="large" {{#if (eq editingNode.tier "large")}}selected{{/if}}>Large</option>
+          <option value="huge" {{#if (eq editingNode.tier "huge")}}selected{{/if}}>Huge</option>
+          <option value="gargantuan" {{#if (eq editingNode.tier "gargantuan")}}selected{{/if}}>Gargantuan</option>
+        </select>
+      </label>
+      <label>Grants <span class="kc-field-hint">(free text)</span>
+        <input type="text" id="node-grants" value="{{editingNode.grantsLabel}}">
+      </label>
+      <label>Grants Building <span class="kc-field-hint">(locks/unlocks building)</span>
+        <div class="kc-color-row">
+          <select id="node-grants-building">
+            <option value="">&mdash; none &mdash;</option>
+            {{#each editingNode.buildingChoices}}
+            <option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.name}}</option>
+            {{/each}}
+          </select>
+          {{#if isGM}}
+          <button type="button" class="kc-browse-btn" data-action="newBuildingFromNode"
+            title="Quick-create a new building, already linked to this node">+ New</button>
+          {{/if}}
+        </div>
+      </label>
+      <label>Grants Transformation <span class="kc-field-hint">(locks/unlocks a district transformation — see Kingdom Configuration &rarr; Transformations)</span>
+        <select id="node-grants-transformation">
+          <option value="">&mdash; none &mdash;</option>
+          {{#each editingNode.transformationChoices}}
+          <option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.name}}</option>
+          {{/each}}
+        </select>
+      </label>
+      <label>Grants Job Domain <span class="kc-field-hint">(locks/unlocks a whole leadership-style role — see Kingdom Configuration &rarr; Domains)</span>
+        <div class="kc-color-row">
+          <select id="node-grants-domain">
+            <option value="">&mdash; none &mdash;</option>
+            {{#each editingNode.domainChoices}}
+            <option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.name}}</option>
+            {{/each}}
+          </select>
+          {{#if isGM}}
+          <button type="button" class="kc-browse-btn" data-action="newJobDomainFromNode"
+            title="Quick-create a new job domain, already linked to this node">+ New</button>
+          {{/if}}
+        </div>
+      </label>
+      <label>Icon <span class="kc-field-hint">(optional, shown inside the node)</span>
+        <div class="kc-file-row">
+          <input type="text" class="file-input" id="node-icon" value="{{editingNode.icon}}">
+          <button type="button" data-action="browseImage">&#128194;</button>
+        </div>
+      </label>
+      <fieldset class="research-editor__prereqs">
+        <legend>Prerequisites</legend>
+        {{#if editingNode.prerequisiteChoices.length}}
+        <label>Require <span class="kc-field-hint">(only matters with 2+ checked below)</span>
+          <select id="node-prerequisite-mode">
+            <option value="all" {{#if (eq editingNode.prerequisiteMode "all")}}selected{{/if}}>All of them</option>
+            <option value="any" {{#if (eq editingNode.prerequisiteMode "any")}}selected{{/if}}>Any one of them</option>
+          </select>
+        </label>
+        <input type="text" id="prereq-search" class="research-editor__search" placeholder="Search nodes&hellip;">
+        {{/if}}
+        {{#each editingNode.prerequisiteChoices}}
+        <label class="kc-checkbox" data-node-name="{{this.name}}">
+          <input type="checkbox" class="node-prereq-checkbox" value="{{this.id}}" {{#if this.checked}}checked{{/if}}>
+          {{this.name}}
+        </label>
+        {{/each}}
+        {{#unless editingNode.prerequisiteChoices.length}}
+        <p class="kc-hint">No other nodes yet.</p>
+        {{/unless}}
+      </fieldset>
+      <div class="kc-form-actions">
+        <button type="button" class="kc-primary" data-action="saveNode">Save Node</button>
+        {{#if editingNode.unlocked}}
+        <button type="button" data-action="relockNode" data-node-id="{{editingNode.id}}"
+          title="Revert this node to locked and refund its point cost">Re-lock</button>
+        {{/if}}
+        {{#unless editingNode._isNew}}
+        <button type="button" class="kc-danger" data-action="deleteNode"
+          data-node-id="{{editingNode.id}}">Delete</button>
+        {{/unless}}
+        <button type="button" data-action="cancelNodeEdit">Cancel</button>
+      </div>
+    </div>
+    {{/if}}
+
+    {{#if editingRegion}}
+    <div class="research-editor">
+      <h3>{{#if editingRegion._isNew}}New {{#if editingRegion.isImage}}Image{{else}}Region{{/if}}{{else}}Edit {{#if
+        editingRegion.isImage}}Image{{else}}Region{{/if}}{{/if}}</h3>
+
+      {{#if editingRegion.isImage}}
+      <label>Image Source
+        <div class="kc-file-row">
+          <input type="text" class="file-input" id="region-image-path" value="{{editingRegion.imagePath}}">
+          <button type="button" data-action="browseImage">&#128194;</button>
+        </div>
+      </label>
+      <label>Opacity
+        <input type="range" id="region-opacity" min="0" max="100" value="{{editingRegion.bgOpacity}}"
+          style="width:100%;accent-color:var(--color-gold-light);">
+        <span id="region-opacity-display">{{editingRegion.bgOpacity}}%</span>
+      </label>
+      <label>Edge Fade (Radial Gradient)
+        <input type="range" id="region-fade" min="0" max="100" value="{{editingRegion.edgeFade}}"
+          style="width:100%;accent-color:var(--color-gold-light);">
+        <span id="region-fade-display">{{editingRegion.edgeFade}}%</span>
+      </label>
+      <label>Z-Index (Background / Foreground)
+        <select id="region-zindex">
+          <option value="-2" {{#if (eq editingRegion.zIndex -2)}}selected{{/if}}>Deep Background</option>
+          <option value="-1" {{#if (eq editingRegion.zIndex -1)}}selected{{/if}}>Background (under nodes)</option>
+          <option value="0" {{#if (eq editingRegion.zIndex 0)}}selected{{/if}}>Mid-ground</option>
+          <option value="3" {{#if (eq editingRegion.zIndex 3)}}selected{{/if}}>Foreground (over nodes)</option>
+        </select>
+      </label>
+      {{else}}
+      <label>Title
+        <input type="text" id="region-title" value="{{editingRegion.title}}">
+      </label>
+      <label>Color
+        <div class="kc-color-row">
+          <input type="color" id="region-color" value="{{editingRegion.color}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper"
+            title="Pick a color">&#128167;</button>
+        </div>
+      </label>
+      <label>Background opacity
+        <input type="range" id="region-opacity" min="0" max="100" value="{{editingRegion.bgOpacity}}"
+          style="width:100%;accent-color:var(--color-gold-light);">
+        <span id="region-opacity-display">{{editingRegion.bgOpacity}}%</span>
+      </label>
+      {{/if}}
+
+      <p class="kc-hint">Drag anywhere on the body to move it, or its bottom-right corner to resize. Click its title
+        (not drag) to re-open this editor.</p>
+      <div class="kc-form-actions">
+        <button type="button" class="kc-primary" data-action="saveRegion">Save</button>
+        {{#unless editingRegion._isNew}}
+        <button type="button" class="kc-danger" data-action="deleteRegion">Delete</button>
+        {{/unless}}
+        <button type="button" data-action="cancelRegionEdit">Cancel</button>
+      </div>
+    </div>
+    {{/if}}
+
+    {{#if editingConfig}}
+    <div class="research-editor research-editor--config">
+      <h3>Tree Configuration</h3>
+
+      <p class="kc-hint">These control the look of the whole tree, not one node — every player sees the same
+        style.</p>
+
+      <label>Background Style
+        <select id="config-bg-style">
+          <option value="starfield" {{#if (eq editingConfig.bgStyle "starfield")}}selected{{/if}}>Starfield (default)</option>
+          <option value="atlas" {{#if (eq editingConfig.bgStyle "atlas")}}selected{{/if}}>Engraved Atlas</option>
+          <option value="parchment" {{#if (eq editingConfig.bgStyle "parchment")}}selected{{/if}}>Aged Parchment</option>
+          <option value="solid" {{#if (eq editingConfig.bgStyle "solid")}}selected{{/if}}>Solid Color</option>
+        </select>
+      </label>
+
+      <label>Canvas Background
+        <div class="kc-color-row">
+          <input type="color" id="config-canvas-bg" value="{{editingConfig.canvasBg}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+
+      <label>Tree Area Width <span class="kc-field-hint">(px, current node positions are unaffected)</span>
+        <input type="number" id="config-canvas-width" value="{{editingConfig.canvasWidth}}" min="1500" max="20000" step="500">
+      </label>
+      <label>Tree Area Height <span class="kc-field-hint">(px)</span>
+        <input type="number" id="config-canvas-height" value="{{editingConfig.canvasHeight}}" min="1500" max="20000" step="500">
+      </label>
+      <p class="kc-hint">The faint border in the canvas marks this area. Expand it before you run out of room for a
+        large tree — existing nodes keep their exact position either way.</p>
+
+      <hr class="research-editor__divider">
+
+      <label>Connection Line Style
+        <select id="config-line-style">
+          <option value="solid" {{#if (eq editingConfig.lineStyle "solid")}}selected{{/if}}>Solid (default)</option>
+          <option value="engraved" {{#if (eq editingConfig.lineStyle "engraved")}}selected{{/if}}>Engraved (animated shimmer)</option>
+          <option value="dashed" {{#if (eq editingConfig.lineStyle "dashed")}}selected{{/if}}>Dashed (animated)</option>
+        </select>
+        <span class="kc-field-hint">Engraved/Dashed animate every unlocked connection continuously — fine for a small tree, can add up on a very large one. Solid has no animation cost.</span>
+      </label>
+      <label>Connection Line Width
+        <input type="number" id="config-line-width" value="{{editingConfig.lineWidth}}" min="1" max="8" step="0.5">
+      </label>
+      <label>Connection Line (Locked)
+        <div class="kc-color-row">
+          <input type="color" id="config-line-color" value="{{editingConfig.lineColor}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+      <label>Connection Line (Unlocked)
+        <div class="kc-color-row">
+          <input type="color" id="config-line-active" value="{{editingConfig.lineActiveColor}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+
+      <hr class="research-editor__divider">
+
+      <label>Node Shape
+        <select id="config-node-shape">
+          <option value="circle" {{#if (eq editingConfig.nodeShape "circle")}}selected{{/if}}>Circle (default)</option>
+          <option value="scroll" {{#if (eq editingConfig.nodeShape "scroll")}}selected{{/if}}>Scroll / Parchment</option>
+          <option value="seal" {{#if (eq editingConfig.nodeShape "seal")}}selected{{/if}}>Wax Seal (scalloped)</option>
+          <option value="hex" {{#if (eq editingConfig.nodeShape "hex")}}selected{{/if}}>Hexagon</option>
+          <option value="diamond" {{#if (eq editingConfig.nodeShape "diamond")}}selected{{/if}}>Diamond</option>
+        </select>
+      </label>
+      <label>Node Size <span class="kc-field-hint">(px)</span>
+        <input type="number" id="config-node-size" value="{{editingConfig.nodeSize}}" min="60" max="260" step="10">
+      </label>
+      <label>Node Background
+        <div class="kc-color-row">
+          <input type="color" id="config-node-bg" value="{{editingConfig.nodeBg}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+      <label>Node Border Color
+        <div class="kc-color-row">
+          <input type="color" id="config-node-border" value="{{editingConfig.nodeBorderColor}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+      <label>Node Border Width <span class="kc-field-hint">(px)</span>
+        <input type="number" id="config-node-border-width" value="{{editingConfig.nodeBorderWidth}}" min="0" max="10" step="1">
+      </label>
+      <label>Node Text Color
+        <div class="kc-color-row">
+          <input type="color" id="config-node-text" value="{{editingConfig.nodeText}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+
+      <hr class="research-editor__divider">
+
+      <label>Accent Color <span class="kc-field-hint">(unlock pulse &amp; particle burst)</span>
+        <div class="kc-color-row">
+          <input type="color" id="config-accent" value="{{editingConfig.accentColor}}">
+          <button type="button" class="kc-eyedropper" data-action="pickColorEyedropper">&#128167;</button>
+        </div>
+      </label>
+      <label>Glow Intensity
+        <input type="range" id="config-glow" min="0" max="200" value="{{editingConfig.glowIntensity}}"
+          style="width:100%;accent-color:var(--color-gold-light);">
+        <span id="config-glow-display">{{editingConfig.glowIntensity}}%</span>
+      </label>
+
+      <div class="kc-form-actions">
+        <button type="button" class="kc-primary" data-action="saveConfig">Save Config</button>
+        <button type="button" class="kc-danger" data-action="resetConfig"
+          title="Reset every style field below to the module's defaults">Reset to Default Style</button>
+        <button type="button" data-action="toggleConfig">Cancel</button>
+      </div>
+    </div>
+    {{/if}}
+  </div>
+</div>

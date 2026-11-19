@@ -1,0 +1,4220 @@
+/* Local fonts — no external network dependency, and works regardless of
+   the Foundry host's CSP/CORS setup. Files expected at
+   modules/pf2e-revamped-kingdoms/fonts/. Bold/italic map onto the same
+   "Alegreya Sans" family via font-weight/font-style, so existing rules
+   using font-weight:700 or font-style:italic automatically pick up the
+   right file without any other CSS needing to change. */
+@font-face {
+  font-family: "Marcellus";
+  src: url("../fonts/Marcellus-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  /* "Black" is used as the body text's normal weight on purpose — it's
+     the heaviest of the three, chosen here for maximum legibility. */
+  font-family: "Alegreya Sans";
+  src: url("../fonts/AlegreyaSans-Black.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Alegreya Sans";
+  src: url("../fonts/AlegreyaSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Alegreya Sans";
+  src: url("../fonts/AlegreyaSans-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Pathfinder 2e action glyphs, loaded from the user's installed font.
+   The characters 1 / 2 / 3 render as the one-, two- and three-action
+   symbols. If the font isn't installed the digits still read correctly. */
+@font-face {
+  font-family: "Pathfinder2eActions";
+  src: local("Pathfinder2eActions"),
+    local("Pathfinder 2e Actions"),
+    local("Pathfinder2eActions-Regular");
+  font-display: swap;
+}
+
+:root {
+  --color-red: #8A1C1C;
+  --color-red-dark: #571313;
+  --color-yellow: #F4E9C0;
+  --color-gold: #9C7C38;
+  --color-gold-light: #E8B651;
+  --color-ink: #1A1C1E;
+  --color-green-accent: #40FF57;
+
+  --font-display: "Marcellus", serif;
+  --font-body: "Alegreya Sans", sans-serif;
+}
+
+.kingdom-app * {
+  box-sizing: border-box;
+}
+
+/* `hidden` must win over any display rule, or hidden views still show */
+.kingdom-app [hidden] {
+  display: none !important;
+}
+
+/* Replaces the original page's `body` — this is the sizing context for
+   every cq* unit below. container-type: size is required so both cqw
+   and cqh resolve against the Foundry window, not the whole viewport. */
+.kingdom-app .window-content {
+  container-type: size;
+  container-name: kingdom-screen;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  font-family: var(--font-body);
+  background: #000;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Screen
+   ========================================================================== */
+.kingdom-app .screen {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  margin: 0 auto;
+  background: var(--color-ink);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 1.4cqh;
+  box-shadow: 0 2cqh 6cqh rgba(0, 0, 0, 0.6);
+}
+
+/* ==========================================================================
+   Header
+   The header intentionally has NO overflow: hidden. The rounded top
+   corners come from .screen clipping instead — that's what lets the
+   tab bar poke below the header's own box without being cut off.
+   ========================================================================== */
+.kingdom-app .kingdom-header {
+  position: relative;
+  /* explicit stacking above the panels below (card-row / page-view),
+     so the tab bar's overlap always paints on top instead of getting
+     tucked underneath the next panel's own background */
+  z-index: 3;
+  flex: none;
+  width: 100%;
+  padding: 2cqh 1.4cqw;
+  border-radius: 1.2cqh 1.2cqh 0 0;
+  height: 23cqh;
+  display: flex;
+  align-items: center;
+}
+
+.kingdom-app .kingdom-header__photo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: url("../images/v10_34.jpg") center 30% / cover no-repeat;
+}
+
+.kingdom-app .kingdom-header__overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(180deg, rgba(20, 21, 18, 0.75) 0%, rgba(20, 21, 18, 0.55) 55%, rgba(20, 21, 18, 0.85) 100%);
+}
+
+/* Reputation tracker — a frosted glass panel. Each crest sits at a
+   height corresponding to that faction's current reputation. Clicking
+   this is meant to open a factions sub-menu — not wired up yet. */
+.kingdom-app .reputation-panel {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  aspect-ratio: 1 / 1;
+  max-height: 100%;
+  margin: 0 auto;
+  align-self: center;
+  border-radius: 1cqh;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  -webkit-backdrop-filter: blur(4px) saturate(1.3);
+  backdrop-filter: blur(4px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1px 8px rgba(0, 0, 0, 0.3),
+    0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.kingdom-app .reputation-panel__tick {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.3);
+}
+/* 7-point scale: -3 .. +3, matching how crests/happiness are positioned
+   in JS (#happinessToPercent). Baseline (0) is the solid divider below;
+   these 6 are the faint dashed reference lines, 3 above / 3 below it. */
+.kingdom-app .reputation-panel__tick--1 { top: 8.5%; }
+.kingdom-app .reputation-panel__tick--2 { top: 21.8%; }
+.kingdom-app .reputation-panel__tick--3 { top: 35.2%; }
+.kingdom-app .reputation-panel__tick--4 { top: 61.8%; }
+.kingdom-app .reputation-panel__tick--5 { top: 75.2%; }
+.kingdom-app .reputation-panel__tick--6 { top: 88%; }
+
+.kingdom-app .reputation-panel__baseline {
+  position: absolute;
+  top: 48.5%;
+  left: 6px;
+  right: 6px;
+  height: 0;
+  border-top: 1px solid var(--color-red);
+}
+.kingdom-app .reputation-panel__baseline::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: linear-gradient(var(--color-gold-light), var(--color-gold));
+  border: 1px solid var(--color-gold-light);
+  border-radius: 2px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+/* Each crest occupies an even third of the panel width; only its
+   vertical position varies, to show that faction's reputation. */
+.kingdom-app .reputation-panel__crest {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  /* centers the crest ON the target line/position, both axes — the old
+     margin-left-only approach centered it horizontally but left its top
+     edge (not its center) sitting on the target %, which visually read
+     as about one tick low regardless of actual happiness value */
+  transform: translate(-50%, -50%);
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.6));
+}
+.kingdom-app .reputation-panel__crest--1 {
+  left: 16.66%;
+  top: 8%;
+  background-image: url("../images/v19_94.png");
+}
+.kingdom-app .reputation-panel__crest--2 {
+  left: 50%;
+  top: 25%;
+  background-image: url("../images/v19_98.png");
+}
+.kingdom-app .reputation-panel__crest--3 {
+  left: 83.33%;
+  top: 60%;
+  background-image: url("../images/v19_95.png");
+}
+
+.kingdom-app .kingdom-header__title {
+  position: relative;
+  z-index: 1;
+  flex: 3 1 0;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(32px, 6cqh, 64px);
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #ffffff 0%, #fff6df 45%, var(--color-gold-light) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0.6cqh 1.2cqh rgba(0, 0, 0, 0.4);
+}
+
+.kingdom-app .stat-badge {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  align-self: center;
+  padding: 1.1cqh 1.4cqw;
+  border-radius: 1cqh;
+  background: rgba(20, 21, 18, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.kingdom-app .stat-badge__total {
+  display: block;
+  font-family: var(--font-display);
+  font-size: clamp(21px, 2.9cqh, 40px);
+  color: var(--color-yellow);
+}
+
+.kingdom-app .stat-badge__delta {
+  display: block;
+  margin-top: 0.2cqh;
+  font-family: var(--font-body);
+  font-size: clamp(14px, 1.5cqh, 21px);
+  color: var(--color-green-accent);
+}
+
+/* Tab bar straddling the header's bottom edge. Each tab is a chevron
+   (clip-path) that notches into the next. */
+.kingdom-app .tab-bar {
+  position: absolute;
+  z-index: 2;
+  /* enlarging the tabs means they need to burrow further down into the
+     panel below, so the overlap grows to match */
+  bottom: -3.4cqh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  padding: 0.5cqh;
+}
+
+.kingdom-app .tab-bar::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 11, 10, 0.95);
+  border-radius: 1.4cqh;
+  box-shadow: 0 0.8cqh 2.2cqh rgba(0, 0, 0, 0.55);
+}
+
+.kingdom-app .tab {
+  position: relative;
+  z-index: 1;
+  border: none;
+  padding: 2cqh 2.6cqw 2cqh 2.2cqw;
+  margin-right: -1.05cqw;
+  background: rgba(146, 148, 124, 0.30);
+  -webkit-backdrop-filter: blur(5px) saturate(1.2);
+  backdrop-filter: blur(5px) saturate(1.2);
+  color: rgba(240, 232, 205, 0.45);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(20px, 2.6cqh, 36px);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-decoration: none;
+  /* flexbox centering instead of relying on padding/line-height, which
+     drifted depending on the font's own metrics */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: background 200ms ease, color 200ms ease;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -10px 16px rgba(0, 0, 0, 0.22);
+}
+.kingdom-app .tab:first-child {
+  clip-path: polygon(0% 0%, 86% 0%, 100% 50%, 86% 100%, 0% 100%);
+  padding-left: 2.6cqw;
+  border-radius: 1cqh 0 0 1cqh;
+}
+.kingdom-app .tab:not(:first-child):not(:last-child) {
+  clip-path: polygon(0% 0%, 86% 0%, 100% 50%, 86% 100%, 0% 100%, 14% 50%);
+}
+.kingdom-app .tab:last-child {
+  clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 14% 50%);
+  padding-right: 1.9cqw;
+  border-radius: 0 1cqh 1cqh 0;
+}
+
+.kingdom-app .tab--active {
+  z-index: 2;
+  background: rgba(176, 178, 150, 0.42);
+  color: var(--color-yellow);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -10px 16px rgba(0, 0, 0, 0.18);
+}
+
+.kingdom-app .tab--ghost {
+  color: rgba(240, 232, 205, 0.32);
+  background: rgba(146, 148, 124, 0.22);
+}
+
+.kingdom-app .tab:hover {
+  background: rgba(176, 178, 150, 0.38);
+  color: rgba(244, 233, 192, 0.85);
+}
+.kingdom-app .tab--active:hover {
+  background: rgba(190, 192, 162, 0.48);
+  color: var(--color-yellow);
+}
+.kingdom-app .tab:focus-visible {
+  outline: 2px solid var(--color-gold-light);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Secondary views (Resolve / Event)
+   ========================================================================== */
+.kingdom-app .page-view {
+  position: relative;
+  z-index: 1;
+  background: var(--color-ink);
+  border-radius: 0 0 1.2cqh 1.2cqh;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6cqh 2cqw;
+}
+.kingdom-app .page-view[hidden] {
+  display: none;
+}
+
+/* ==========================================================================
+   Domain cards (Decide stage)
+   ========================================================================== */
+.kingdom-app .card-row {
+  display: flex;
+  gap: 0.7cqw;
+  /* extra top clearance so the enlarged tab bar's overlap doesn't crowd
+     the first row of banners */
+  padding: 3cqh 0.8cqw 1cqh;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--color-ink);
+  border-radius: 0 0 1.2cqh 1.2cqh;
+  position: relative;
+  z-index: 0;
+  align-items: stretch;
+}
+.kingdom-app .card-row[hidden] {
+  display: none;
+}
+.kingdom-app .card-row::-webkit-scrollbar { height: 2cqh; }
+.kingdom-app .card-row::-webkit-scrollbar-track {
+  background: rgba(8, 9, 8, 0.9);
+  border-top: 1px solid rgba(196, 154, 69, 0.25);
+}
+.kingdom-app .card-row::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  border: 2px solid rgba(8, 9, 8, 0.9);
+  border-radius: 999px;
+}
+.kingdom-app .card-row::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #F3CC72, var(--color-gold-light));
+}
+.kingdom-app .card-row {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gold) rgba(8, 9, 8, 0.9);
+}
+
+/* Each domain reads as a hanging banner: a dark rod across the top, a
+   thin gold edge, a soft drop shadow, and a swallowtail notch at the
+   bottom hem. */
+.kingdom-app .faction-card {
+  position: relative;
+  flex: 0 0 420px;
+  height: 100%;
+  background-color: #DCC89A;
+  background:
+    repeating-linear-gradient(92deg, rgba(150,120,70,0.04) 0 2px, transparent 2px 6px),
+    linear-gradient(180deg, #E4D5AE, #D2BD8C);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 3cqh;
+  border-radius: 0.3cqh 0.3cqh 0 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.45),
+    inset 0 0 2.4cqh rgba(120, 92, 40, 0.16),
+    0 1cqh 2.2cqh rgba(0, 0, 0, 0.45);
+  transition: transform 200ms ease, opacity 200ms ease, filter 200ms ease, box-shadow 200ms ease;
+  -webkit-clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 2.2cqh), 0 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 2.2cqh), 0 100%);
+}
+
+.kingdom-app .faction-card__banner-top {
+  height: 0.7cqh;
+  flex: none;
+  background: linear-gradient(180deg, #4A3A1E, #2A2013);
+  box-shadow: 0 1px 0 rgba(232, 182, 81, 0.5);
+}
+
+/* Hovering one banner pops it forward and dims the rest. This used to
+   animate flex-basis, which forces the whole row to reflow on every
+   frame — a real performance cost with 6+ cards. transform + opacity are
+   compositor-only, so this reads almost the same but costs far less. */
+.kingdom-app .card-row:hover .faction-card {
+  opacity: 0.5;
+  filter: saturate(0.75);
+}
+.kingdom-app .card-row .faction-card:hover {
+  transform: scale(1.06);
+  z-index: 5;
+  opacity: 1;
+  filter: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.45),
+    inset 0 0 2.4cqh rgba(120, 92, 40, 0.16),
+    0 1.6cqh 3cqh rgba(0, 0, 0, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kingdom-app .faction-card { transition: none; }
+}
+
+.kingdom-app .faction-card__portrait {
+  width: 100%;
+  flex: 0 0 26%;
+  background-position: center 15%;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-color: #C9B084;
+  filter: sepia(1) contrast(1.05) saturate(1.15);
+  -webkit-mask-image: linear-gradient(180deg, #000 58%, rgba(0,0,0,0.35) 84%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 58%, rgba(0,0,0,0.35) 84%, transparent 100%);
+}
+.kingdom-app .faction-card__portrait--remote {
+  background-color: #C9B084;
+}
+
+.kingdom-app .faction-card__title {
+  margin: 0;
+  padding: 0 0.6cqw 0;
+  margin-top: -3.2cqh;
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(23px, 3.4cqh, 46px);
+  background: linear-gradient(180deg, var(--color-ink) 0%, #3a2c14 60%, var(--color-red-dark) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-align: center;
+}
+
+.kingdom-app .faction-card__tags {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.9cqh 0.7cqw;
+  margin: 0.2cqh 0.7cqw 0;
+  border-top: 1px solid var(--color-red);
+  border-bottom: 1px solid var(--color-red);
+}
+.kingdom-app .faction-card__tags::before,
+.kingdom-app .faction-card__tags::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  background: var(--color-red);
+  border-radius: 1px;
+  transform: translateX(-50%) rotate(45deg);
+}
+.kingdom-app .faction-card__tags::before { top: -4px; }
+.kingdom-app .faction-card__tags::after { bottom: -4px; }
+.kingdom-app .faction-card__tags span {
+  font-size: clamp(13px, 1.3cqh, 19px);
+  letter-spacing: 0.01em;
+  color: rgba(26, 28, 30, 0.75);
+  text-align: center;
+  flex: 1;
+}
+
+.kingdom-app .faction-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1cqh;
+  margin: 1.2cqh 0.7cqw 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156,124,56,0.55) transparent;
+}
+.kingdom-app .faction-card__actions::-webkit-scrollbar { width: 0.7cqh; }
+.kingdom-app .faction-card__actions::-webkit-scrollbar-track { background: transparent; }
+.kingdom-app .faction-card__actions::-webkit-scrollbar-thumb {
+  background: rgba(156, 124, 56, 0.55);
+  border-radius: 999px;
+}
+
+.kingdom-app .faction-card__ability {
+  padding: 1cqh 0.65cqw;
+  background: #C9A57E;
+  border-radius: 2px;
+  font-size: clamp(15px, 1.7cqh, 22px);
+  line-height: 1.45;
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px rgba(120, 92, 40, 0.3);
+}
+
+.kingdom-app .faction-card__ability-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35cqw;
+  margin: 0 0 0.5cqh;
+  font-size: clamp(17px, 1.9cqh, 25px);
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+.kingdom-app .act-icon {
+  font-family: "Pathfinder2eActions", var(--font-display);
+  font-size: 1.35em;
+  line-height: 1;
+  flex: none;
+}
+.kingdom-app .act-sep {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.kingdom-app .faction-card__note {
+  margin: 0.4cqh 2px 0;
+  font-size: clamp(13px, 1.3cqh, 19px);
+  font-style: italic;
+  line-height: 1.5;
+  color: rgba(26, 28, 30, 0.68);
+}
+
+.kingdom-app .faction-card__ability p { margin: 0 0 6px; }
+.kingdom-app .faction-card__ability ul {
+  margin: 0;
+  padding-left: 1.1cqh;
+}
+.kingdom-app .faction-card__ability li { margin-bottom: 0.35cqh; }
+.kingdom-app .faction-card__ability li::marker { content: "- "; }
+
+/* ==========================================================================
+   Resolve — a horizontal timeline of everything committed this turn.
+   Cards alternate above and below a red spine studded with diamonds.
+   ========================================================================== */
+.kingdom-app .resolve-view { padding: 0; align-items: stretch; }
+
+.kingdom-app .timeline-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 1.2cqh 1cqw 1.6cqh;
+  padding: 2cqh 2cqw;
+  border-radius: 1.6cqh;
+  background-color: #E9DCBB;
+  background:
+    repeating-linear-gradient(94deg, rgba(150,120,70,0.035) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(3deg, rgba(150,120,70,0.03) 0 1px, transparent 1px 9px),
+    radial-gradient(80% 60% at 8% 96%, rgba(150, 116, 60, 0.16), transparent 60%),
+    radial-gradient(70% 55% at 96% 6%, rgba(150, 116, 60, 0.13), transparent 60%),
+    radial-gradient(120% 100% at 50% 0%, #F2E9CE 0%, #E9DCBB 55%, #DFCFA6 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.4),
+    inset 0 0 6cqh rgba(120, 92, 40, 0.10),
+    0 1.4cqh 3cqh rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.kingdom-app .timeline-empty {
+  margin: 0 auto;
+  max-width: 34cqw;
+  text-align: center;
+  font-size: clamp(16px, 1.8cqh, 25px);
+  line-height: 1.6;
+  color: rgba(26, 28, 30, 0.58);
+}
+
+.kingdom-app .timeline {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 1cqw;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156,124,56,0.55) transparent;
+}
+.kingdom-app .timeline[hidden] { display: none; }
+.kingdom-app .timeline::-webkit-scrollbar { height: 0.9cqh; }
+.kingdom-app .timeline::-webkit-scrollbar-thumb {
+  background: rgba(156, 124, 56, 0.55);
+  border-radius: 999px;
+}
+
+.kingdom-app .timeline__track {
+  position: relative;
+  height: 100%;
+  min-width: 100%;
+  width: -webkit-max-content;
+  width: max-content;
+  display: flex;
+  align-items: stretch;
+  gap: 1.4cqw;
+}
+
+.kingdom-app .timeline__spine {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-1px);
+  background: linear-gradient(90deg,
+    rgba(138, 28, 28, 0) 0%,
+    rgba(138, 28, 28, 0.9) 6%,
+    rgba(138, 28, 28, 0.9) 94%,
+    rgba(138, 28, 28, 0) 100%);
+  pointer-events: none;
+}
+
+.kingdom-app .tl-item {
+  position: relative;
+  flex: 0 0 15cqw;
+  min-width: 190px;
+  height: 100%;
+  min-height: 62cqh;
+}
+.kingdom-app .tl-item--up .tl-card { top: 2.5cqh; }
+.kingdom-app .tl-item--down .tl-card { bottom: 2.5cqh; }
+
+.kingdom-app .tl-node {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.7cqh;
+  height: 1.7cqh;
+  background: linear-gradient(var(--color-red), var(--color-red-dark));
+  border: 1px solid rgba(232, 182, 81, 0.75);
+  border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+.kingdom-app .tl-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 25cqh;
+  border-radius: 0.8cqh;
+  overflow: hidden;
+  cursor: pointer;
+  background-position: center 20%;
+  background-size: cover;
+  background-color: #7A5A32;
+  filter: sepia(0.85);
+  border: 1px solid rgba(120, 92, 40, 0.7);
+  box-shadow: 0 0.8cqh 1.8cqh rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0.8cqh 0.7cqw;
+  transition: box-shadow 220ms ease, transform 220ms ease, filter 220ms ease;
+}
+
+.kingdom-app .tl-card__veil {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: linear-gradient(180deg,
+    rgba(30, 18, 8, 0.1) 0%,
+    rgba(30, 18, 8, 0.55) 55%,
+    rgba(30, 18, 8, 0.88) 100%);
+}
+
+.kingdom-app .tl-card__domain,
+.kingdom-app .tl-card__action { position: relative; }
+
+.kingdom-app .tl-card__domain {
+  font-family: var(--font-display);
+  font-size: clamp(17px, 2cqh, 28px);
+  line-height: 1.1;
+  color: #F6EBCB;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.kingdom-app .tl-card__action {
+  display: flex;
+  align-items: center;
+  gap: 0.35cqw;
+  margin-top: 0.4cqh;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: clamp(14px, 1.45cqh, 21px);
+  color: rgba(244, 233, 192, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.kingdom-app .tl-card__mark {
+  width: 0.7cqh;
+  height: 0.7cqh;
+  flex: none;
+  background: var(--color-gold-light);
+  transform: rotate(45deg);
+}
+
+.kingdom-app .tl-card__cost {
+  position: absolute;
+  top: 0.5cqh;
+  right: 0.5cqh;
+  min-width: 2.2cqh;
+  height: 2.2cqh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.4cqh;
+  background: rgba(138, 28, 28, 0.9);
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  color: var(--color-yellow);
+  font-family: "Pathfinder2eActions", var(--font-display);
+  font-size: clamp(15px, 1.7cqh, 24px);
+  line-height: 1;
+}
+
+.kingdom-app .tl-card:hover,
+.kingdom-app .tl-card:focus-visible {
+  transform: translateY(-0.5cqh);
+  filter: sepia(0.5);
+  outline: none;
+  box-shadow:
+    0 0 0 1px rgba(232, 182, 81, 0.85),
+    0 0 2.2cqh rgba(232, 182, 81, 0.55),
+    0 1.2cqh 2.4cqh rgba(0, 0, 0, 0.45);
+}
+.kingdom-app .tl-item:hover .tl-node,
+.kingdom-app .tl-card:focus-visible ~ .tl-node {
+  transform: translate(-50%, -50%) rotate(45deg) scale(1.25);
+  box-shadow: 0 0 1.4cqh rgba(232, 182, 81, 0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kingdom-app .tl-card, .kingdom-app .tl-node { transition: none; }
+  .kingdom-app .tl-card:hover { transform: none; }
+}
+
+/* ==========================================================================
+   Event — full-bleed art on the left dissolving into the panel, with the
+   event copy set on the dark ground to the right.
+   ========================================================================== */
+.kingdom-app .event-view { padding: 0; align-items: stretch; }
+
+.kingdom-app .event-scene {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 1.2cqh 1cqw 1.6cqh;
+  border-radius: 1.6cqh;
+  overflow: hidden;
+  background-color: #14170F;
+  background:
+    radial-gradient(90% 120% at 18% 50%, rgba(58, 92, 46, 0.35), transparent 62%),
+    linear-gradient(180deg, #171B12 0%, #101309 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.32),
+    0 1.4cqh 3cqh rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: stretch;
+}
+
+.kingdom-app .event-art {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 58%;
+  background-image: url("../images/cataclysm.jpg");
+  background-size: cover;
+  background-position: center center;
+  -webkit-mask-image:
+    linear-gradient(90deg, #000 0%, #000 45%, rgba(0,0,0,0.55) 72%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, #000 9%, #000 91%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(90deg, #000 0%, #000 45%, rgba(0,0,0,0.55) 72%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, #000 9%, #000 91%, transparent 100%);
+  mask-composite: intersect;
+  animation: rk-event-art-in 0.4s ease both;
+}
+
+.kingdom-app .event-copy {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  width: 42%;
+  padding: 5cqh 3.4cqw 5cqh 1cqw;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156,124,56,0.5) transparent;
+}
+.kingdom-app .event-copy::-webkit-scrollbar { width: 0.7cqh; }
+.kingdom-app .event-copy::-webkit-scrollbar-thumb {
+  background: rgba(156, 124, 56, 0.5);
+  border-radius: 999px;
+}
+
+.kingdom-app .event-title {
+  margin: 0 0 2.2cqh;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(27px, 4.4cqh, 56px);
+  line-height: 1.1;
+  background: linear-gradient(180deg, #ffffff 0%, #fff6df 45%, var(--color-gold-light) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0.4cqh 1.2cqh rgba(0, 0, 0, 0.6);
+  animation: rk-event-title-in 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: 0.15s;
+}
+
+.kingdom-app .event-copy p {
+  margin: 0 0 1.8cqh;
+  font-family: var(--font-body);
+  font-size: clamp(16px, 1.85cqh, 26px);
+  line-height: 1.55;
+  color: rgba(240, 233, 210, 0.88);
+}
+.kingdom-app .event-copy p strong { color: #F6EBCB; }
+
+.kingdom-app .event-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqh;
+  margin-top: 0.6cqh !important;
+  padding-top: 1.6cqh;
+  border-top: 1px solid rgba(156, 124, 56, 0.35);
+}
+.kingdom-app .event-outcomes strong { letter-spacing: 0.04em; }
+
+.kingdom-app .event-body-wrap {
+  animation: rk-event-body-in 0.4s ease both;
+  animation-delay: 0.35s;
+}
+
+/* Entrance sequence for a freshly-shown event/page/stage: art fades in
+   first, title "pops" in slightly dramatically right after, body fades
+   in last. Each new page/stage/event is a fresh render (new DOM nodes),
+   so these CSS animations replay automatically every time — no JS
+   retriggering needed. One tradeoff worth knowing: since the whole
+   panel re-renders on ANY kingdom update (e.g. another player's
+   action), the sequence can replay even when the event itself hasn't
+   changed. Accepted as a reasonable trade for not needing a much more
+   involved "did the content actually change" tracking mechanism. */
+@keyframes rk-event-art-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes rk-event-title-in {
+  0% { opacity: 0; transform: scale(1.18) translateY(-10px); }
+  55% { opacity: 1; transform: scale(0.97) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes rk-event-body-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.kingdom-app .event-scene__change {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--color-yellow);
+  font-family: var(--font-body);
+  font-size: clamp(12px, 1.3cqh, 18px);
+  padding: 0.5cqh 1cqw;
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+}
+.kingdom-app .event-scene__change:hover {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.kingdom-app .event-picker {
+  flex: 1;
+  min-height: 0;
+  margin: 1.2cqh 1cqw 1.6cqh;
+  border-radius: 1.6cqh;
+  background: linear-gradient(180deg, #171B12 0%, #101309 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.32),
+    0 1.4cqh 3cqh rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 1cqh;
+  padding: 2.4cqh 2cqw;
+  overflow-y: auto;
+}
+.kingdom-app .event-picker > .page-view__title {
+  flex: none;
+  text-align: center;
+}
+.kingdom-app .event-picker__random {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5cqh;
+  padding-bottom: 1.4cqh;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.kingdom-app .event-picker__random .kc-hint {
+  text-align: center;
+  max-width: 60ch;
+}
+.kingdom-app .event-picker__categories {
+  display: flex;
+  flex-direction: column;
+  gap: 1.8cqh;
+}
+.kingdom-app .event-picker__category-title {
+  margin: 0 0 0.8cqh;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(15px, 1.8cqh, 24px);
+  color: rgba(232, 182, 81, 0.85);
+  border-bottom: 1px solid rgba(232, 182, 81, 0.25);
+  padding-bottom: 0.4cqh;
+}
+.kingdom-app .event-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.9cqh 0.9cqw;
+}
+.kingdom-app .event-picker-card {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #2a2c26, #1c1e19);
+  border-radius: 0.6cqh;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.kingdom-app .event-picker-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(232, 182, 81, 0.6);
+  box-shadow: 0 0.6cqh 1.4cqh rgba(0, 0, 0, 0.4);
+}
+.kingdom-app .event-picker-card__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-color: rgba(255, 255, 255, 0.06);
+  background-position: center;
+  background-size: cover;
+}
+.kingdom-app .event-picker-card__body {
+  padding: 0.7cqh 0.7cqw 0.9cqh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3cqh;
+}
+.kingdom-app .event-picker-card__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(13px, 1.5cqh, 19px);
+  color: var(--color-yellow);
+}
+.kingdom-app .event-picker-card__type {
+  align-self: flex-start;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(244, 233, 192, 0.7);
+}
+.kingdom-app .event-picker-card__type--multiscreen {
+  background: rgba(90, 169, 230, 0.2);
+  color: #7ec3ee;
+}
+.kingdom-app .event-picker-card__type--questline {
+  background: rgba(232, 182, 81, 0.2);
+  color: var(--color-gold-light);
+}
+.kingdom-app .event-picker-card__progress {
+  font-size: 11px;
+  color: rgba(244, 233, 192, 0.6);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Event scene — multiscreen/questline navigation
+   ========================================================================== */
+.kingdom-app .event-progress {
+  margin: 0 0 0.4cqh !important;
+  font-size: 1.1cqh;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(232, 182, 81, 0.75);
+}
+.kingdom-app .event-scene__controls {
+  position: absolute;
+  bottom: 1.2cqh;
+  right: 1.2cqw;
+  z-index: 2;
+  display: flex;
+  gap: 0.6cqw;
+}
+.kingdom-app .event-scene__nav {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--color-yellow);
+  font-family: var(--font-body);
+  font-size: clamp(12px, 1.3cqh, 18px);
+  padding: 0.5cqh 1.2cqw;
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+}
+.kingdom-app .event-scene__nav:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.7);
+}
+.kingdom-app .event-scene__nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.kingdom-app .event-scene__nav--primary {
+  border-color: rgba(232, 182, 81, 0.8);
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  font-weight: 700;
+}
+.kingdom-app .event-scene__nav--primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #fff, var(--color-gold-light));
+}
+
+/* ==========================================================================
+   GM "configure" button, floating in the header corner
+   ========================================================================== */
+.kingdom-app .kingdom-config-btn {
+  position: absolute;
+  z-index: 3;
+  top: 1cqh;
+  right: 1cqh;
+  width: 3.4cqh;
+  height: 3.4cqh;
+  min-width: 26px;
+  min-height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(20, 21, 18, 0.55);
+  color: var(--color-yellow);
+  font-size: clamp(16px, 1.8cqh, 25px);
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.kingdom-app .kingdom-config-btn:hover {
+  background: rgba(20, 21, 18, 0.8);
+  transform: rotate(25deg);
+}
+.kingdom-app .kingdom-config-btn--pull {
+  right: calc(1cqh + 3.4cqh + 0.6cqh);
+}
+.kingdom-app .kingdom-config-btn--pull:hover {
+  background: rgba(20, 21, 18, 0.8);
+  transform: scale(1.12);
+}
+
+/* ==========================================================================
+   Action selection screen (Decide -> click a domain)
+   Reached by clicking a domain banner. Actions are dragged (or clicked)
+   from the pool on the left into the three numbered slots on the right.
+   ========================================================================== */
+.kingdom-app .select-view {
+  padding: 0;
+  align-items: stretch;
+}
+
+.kingdom-app .select-sheet {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 1.2cqh 1cqw 1.6cqh;
+  padding: 2.4cqh 2cqw;
+  border-radius: 1.6cqh;
+  background-color: #E9DCBB;
+  background:
+    repeating-linear-gradient(94deg, rgba(150,120,70,0.035) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(3deg, rgba(150,120,70,0.03) 0 1px, transparent 1px 9px),
+    radial-gradient(80% 60% at 8% 96%, rgba(150, 116, 60, 0.16), transparent 60%),
+    radial-gradient(70% 55% at 96% 6%, rgba(150, 116, 60, 0.13), transparent 60%),
+    radial-gradient(120% 100% at 50% 0%, #F2E9CE 0%, #E9DCBB 55%, #DFCFA6 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.4),
+    inset 0 0 6cqh rgba(120, 92, 40, 0.10),
+    0 1.4cqh 3cqh rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.kingdom-app .select-sheet::before,
+.kingdom-app .select-sheet::after {
+  content: "";
+  position: absolute;
+  width: 4cqh;
+  height: 4cqh;
+  pointer-events: none;
+  opacity: 0.55;
+}
+.kingdom-app .select-sheet::before {
+  top: 1.2cqh;
+  left: 1cqw;
+  border-top: 1px solid var(--color-gold);
+  border-left: 1px solid var(--color-gold);
+  border-radius: 0.6cqh 0 0 0;
+}
+.kingdom-app .select-sheet::after {
+  bottom: 1.2cqh;
+  right: 1cqw;
+  border-bottom: 1px solid var(--color-gold);
+  border-right: 1px solid var(--color-gold);
+  border-radius: 0 0 0.6cqh 0;
+}
+
+.kingdom-app .select-back {
+  position: absolute;
+  z-index: 5;
+  top: 1.4cqh;
+  right: 1.4cqw;
+  border: 1px solid rgba(120, 92, 40, 0.35);
+  background: rgba(255, 255, 255, 0.35);
+  color: rgba(26, 28, 30, 0.75);
+  font-family: var(--font-body);
+  font-size: clamp(14px, 1.5cqh, 21px);
+  padding: 0.5cqh 0.8cqw;
+  border-radius: 0.6cqh;
+  cursor: pointer;
+}
+.kingdom-app .select-back:hover { background: rgba(255, 255, 255, 0.6); }
+
+.kingdom-app .select-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1cqw;
+  flex: none;
+  padding-bottom: 1.4cqh;
+}
+.kingdom-app .select-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    var(--color-red) 0%,
+    rgba(138, 28, 28, 0.35) 55%,
+    transparent 100%);
+}
+
+.kingdom-app .select-head__portrait {
+  width: 7cqh;
+  height: 7cqh;
+  border-radius: 50%;
+  background-position: center 18%;
+  background-size: cover;
+  background-color: #C9B084;
+  filter: sepia(1);
+  box-shadow:
+    0 0 0 2px rgba(156, 124, 56, 0.55),
+    0 0.5cqh 1.2cqh rgba(0, 0, 0, 0.3);
+}
+
+.kingdom-app .select-head__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(26px, 4cqh, 52px);
+  background: linear-gradient(180deg, var(--color-ink) 0%, #3a2c14 60%, var(--color-red-dark) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  border-bottom: 1px solid rgba(138, 28, 28, 0.6);
+  padding-bottom: 0.2cqh;
+}
+
+.kingdom-app .select-body {
+  display: flex;
+  align-items: stretch;
+  gap: 2cqw;
+  flex: 1;
+  min-height: 0;
+  margin-top: 2.2cqh;
+}
+
+.kingdom-app .select-pool {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9cqh;
+  overflow-y: auto;
+  padding-right: 0.4cqw;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156,124,56,0.55) transparent;
+}
+.kingdom-app .select-pool::before {
+  content: "Available actions";
+  font-family: var(--font-body);
+  font-size: clamp(13px, 1.25cqh, 18px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(26, 28, 30, 0.55);
+  margin-bottom: 0.2cqh;
+  flex: none;
+}
+.kingdom-app .select-pool::-webkit-scrollbar { width: 0.7cqh; }
+.kingdom-app .select-pool::-webkit-scrollbar-thumb {
+  background: rgba(156, 124, 56, 0.55);
+  border-radius: 999px;
+}
+
+.kingdom-app .select-divider {
+  flex: none;
+  width: 1px;
+  align-self: stretch;
+  background: linear-gradient(180deg,
+    rgba(138, 28, 28, 0) 0%,
+    rgba(138, 28, 28, 0.85) 25%,
+    rgba(138, 28, 28, 0.85) 75%,
+    rgba(138, 28, 28, 0) 100%);
+  position: relative;
+}
+.kingdom-app .select-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.6cqh;
+  height: 1.6cqh;
+  background: linear-gradient(var(--color-red), var(--color-red-dark));
+  border: 1px solid rgba(232, 182, 81, 0.7);
+  border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.kingdom-app .action-chip {
+  padding: 0.9cqh 0.8cqw;
+  background: #C9A57E;
+  border-radius: 0.4cqh;
+  font-size: clamp(14px, 1.4cqh, 20px);
+  line-height: 1.4;
+  color: var(--color-ink);
+  cursor: grab;
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgba(120, 92, 40, 0.35);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.kingdom-app .action-chip:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px rgba(120, 92, 40, 0.5),
+    0 0.5cqh 1.2cqh rgba(0, 0, 0, 0.22);
+}
+.kingdom-app .action-chip:active { cursor: grabbing; }
+.kingdom-app .action-chip.is-dragging { opacity: 0.45; }
+.kingdom-app .action-chip p { margin: 0 0 0.3cqh; }
+.kingdom-app .action-chip ul { margin: 0; padding-left: 1.1cqh; }
+.kingdom-app .action-chip li { margin-bottom: 0.25cqh; }
+.kingdom-app .action-chip li::marker { content: "- "; }
+.kingdom-app .action-chip .faction-card__ability-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35cqw;
+  margin: 0 0 0.5cqh;
+  font-size: clamp(17px, 1.9cqh, 25px);
+  font-weight: 700;
+}
+.kingdom-app .action-chip .faction-card__ability-title::after {
+  content: "";
+  width: 0.7cqh;
+  height: 0.7cqh;
+  margin-left: auto;
+  background: var(--color-red);
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  transform: rotate(45deg);
+  flex: none;
+}
+
+.kingdom-app .select-slots {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4cqh;
+  min-height: 0;
+}
+.kingdom-app .select-slots::before {
+  content: "This turn";
+  font-family: var(--font-body);
+  font-size: clamp(13px, 1.25cqh, 18px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(26, 28, 30, 0.55);
+  flex: none;
+}
+
+.kingdom-app .slot-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2cqh;
+}
+
+.kingdom-app .slot {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: 1px solid rgba(120, 92, 40, 0.45);
+  border-radius: 0.8cqh;
+  flex: 1 1 0;
+  background: rgba(255, 253, 245, 0.28);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  overflow: hidden;
+  padding: 0.6cqh;
+}
+.kingdom-app .slot:not(.slot--filled)::before {
+  content: "";
+  position: absolute;
+  inset: 0.8cqh 1cqw;
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 1.5cqh,
+    rgba(120, 92, 40, 0.10) 1.5cqh 1.55cqh);
+  pointer-events: none;
+}
+.kingdom-app .slot__num {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 3.2cqh, 44px);
+  letter-spacing: 0.08em;
+  color: rgba(120, 92, 40, 0.32);
+  position: relative;
+}
+.kingdom-app .slot--over {
+  background: rgba(232, 182, 81, 0.26);
+  border-color: var(--color-gold-light);
+  box-shadow: inset 0 0 0 1px var(--color-gold-light);
+}
+.kingdom-app .slot--bad {
+  background: rgba(138, 28, 28, 0.16);
+  border-color: rgba(138, 28, 28, 0.7);
+}
+.kingdom-app .slot--reject { animation: kingdom-slot-shake 380ms ease; }
+@keyframes kingdom-slot-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+.kingdom-app .slot--filled {
+  background: rgba(255, 253, 245, 0.5);
+  align-items: stretch;
+  border-color: rgba(120, 92, 40, 0.7);
+  box-shadow: inset 0 0 1.4cqh rgba(120, 92, 40, 0.12);
+}
+.kingdom-app .slot--filled .action-chip {
+  flex: 1;
+  overflow-y: auto;
+  cursor: default;
+  box-shadow: none;
+  background: #C9A57E;
+}
+.kingdom-app .slot--filled .slot__span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.45cqw;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--color-red) 0 0.6cqh,
+    var(--color-red-dark) 0.6cqh 1.2cqh);
+  color: transparent;
+  overflow: hidden;
+}
+.kingdom-app .slot__clear {
+  position: absolute;
+  top: 0.4cqh;
+  right: 0.4cqh;
+  width: 2.2cqh;
+  height: 2.2cqh;
+  line-height: 1;
+  border: none;
+  border-radius: 50%;
+  background: rgba(138, 28, 28, 0.85);
+  color: #F4E9C0;
+  font-size: clamp(15px, 1.7cqh, 24px);
+  cursor: pointer;
+  z-index: 2;
+}
+.kingdom-app .slot__clear:hover { background: var(--color-red); }
+
+.kingdom-app .cost-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.3cqw;
+  margin-top: 0.7cqh;
+  padding-top: 0.6cqh;
+  border-top: 1px solid rgba(120, 92, 40, 0.3);
+}
+.kingdom-app .cost-choice__label {
+  font-size: clamp(13px, 1.25cqh, 18px);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(26, 28, 30, 0.6);
+}
+.kingdom-app .cost-pip {
+  font-family: "Pathfinder2eActions", var(--font-display);
+  font-size: clamp(17px, 2cqh, 28px);
+  line-height: 1;
+  padding: 0.2cqh 0.4cqw;
+  border: 1px solid rgba(120, 92, 40, 0.45);
+  border-radius: 0.4cqh;
+  background: rgba(255, 255, 255, 0.25);
+  color: rgba(26, 28, 30, 0.65);
+  cursor: pointer;
+}
+.kingdom-app .cost-pip.is-on {
+  background: var(--color-red);
+  border-color: var(--color-red-dark);
+  color: var(--color-yellow);
+}
+
+.kingdom-app .confirm-btn {
+  flex: none;
+  padding: 1.4cqh 0;
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  border-radius: 0.6cqh;
+  background: linear-gradient(180deg, #6E4A22, #4A2F14);
+  color: var(--color-yellow);
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2.6cqh, 36px);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(232, 182, 81, 0.35),
+    0 0.6cqh 1.4cqh rgba(0, 0, 0, 0.35);
+  transition: filter 160ms ease, opacity 160ms ease;
+}
+.kingdom-app .confirm-btn:hover { filter: brightness(1.15); }
+
+.kingdom-app .faction-card { cursor: pointer; }
+.kingdom-app .faction-card:focus-visible {
+  outline: 2px solid var(--color-gold-light);
+  outline-offset: -2px;
+}
+
+/* ==========================================================================
+   GM Kingdom Configuration app — a plain scrollable form UI, not part of
+   the vh/cqh-styled kiosk screen, so ordinary units are fine here.
+   ========================================================================== */
+.kingdom-app .kc-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--font-body);
+  color: var(--color-yellow);
+  background: var(--color-ink);
+}
+
+.kingdom-app .kc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex: none;
+}
+
+.kingdom-app .kc-tabs {
+  display: flex;
+  gap: 6px;
+}
+.kingdom-app .kc-tab {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(244, 233, 192, 0.72);
+  font-family: var(--font-display);
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.kingdom-app .kc-tab--active {
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+}
+
+.kingdom-app .kc-publish {
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  background: linear-gradient(180deg, #6E4A22, #4A2F14);
+  color: var(--color-yellow);
+  font-family: var(--font-display);
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.kingdom-app .kc-publish:hover { filter: brightness(1.15); }
+
+.kingdom-app .kc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.kingdom-app .kc-list {
+  width: 260px;
+  flex: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kingdom-app .kc-new-btn {
+  border: 1px dashed rgba(232, 182, 81, 0.5);
+  background: transparent;
+  color: var(--color-gold-light);
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.kingdom-app .kc-new-btn:hover { background: rgba(232, 182, 81, 0.1); }
+
+.kingdom-app .kc-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  /* clamp(min, container-relative, max) — scales gently with this
+     window's own size (see container-type: size on .window-content
+     above) instead of staying fixed regardless of how big the GM has
+     resized the window. Min/max keep it from ever going illegibly
+     small or comically large. */
+  font-size: clamp(13px, 1.3cqh, 17px);
+}
+.kingdom-app .kc-list-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kingdom-app .kc-list-item__actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.kingdom-app .kc-list-item__actions button {
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-yellow);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: clamp(11px, 1.1cqh, 14px);
+  cursor: pointer;
+}
+.kingdom-app .kc-danger { background: rgba(138, 28, 28, 0.6) !important; }
+
+.kingdom-app .kc-editor {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.kingdom-app .kc-hint {
+  color: rgba(244, 233, 192, 0.58);
+  font-style: italic;
+  font-size: clamp(13px, 1.25cqh, 16px);
+}
+
+.kingdom-app .kc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 640px;
+}
+.kingdom-app .kc-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: clamp(13px, 1.3cqh, 16px);
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .kc-field-hint {
+  font-weight: 400;
+  opacity: 0.6;
+}
+.kingdom-app .kc-form input[type="text"],
+.kingdom-app .kc-form textarea,
+.kingdom-app .kc-form select {
+  font-family: var(--font-body);
+  font-size: clamp(14px, 1.4cqh, 18px);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+  resize: both;
+}
+.kingdom-app .kc-form input[type="color"] {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 2px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  cursor: pointer;
+}
+.kingdom-app .kc-event-conditions {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kingdom-app .kc-event-conditions legend {
+  font-size: 12px;
+  color: rgba(244, 233, 192, 0.75);
+  padding: 0 4px;
+}
+.kingdom-app .kc-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kingdom-app .kc-file-row input {
+  flex: 1;
+  min-width: 0;
+}
+.kingdom-app .kc-thumb {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.08);
+  background-position: center;
+  background-size: cover;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.kingdom-app .kc-color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kingdom-app .kc-eyedropper {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.kingdom-app .kc-eyedropper:hover {
+  background: rgba(232, 182, 81, 0.2);
+  border-color: rgba(232, 182, 81, 0.5);
+}
+.kingdom-app .kc-browse-btn {
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(244, 233, 192, 0.85);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kingdom-app .kc-browse-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.kingdom-app .kc-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.kingdom-app .kc-abilities {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.kingdom-app .kc-abilities__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(244, 233, 192, 0.62);
+}
+.kingdom-app .kc-abilities__header button {
+  border: 1px dashed rgba(232, 182, 81, 0.5);
+  background: transparent;
+  color: var(--color-gold-light);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.kingdom-app .ability-row,
+.kingdom-app .outcome-row,
+.kingdom-app .page-row,
+.kingdom-app .stage-row {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.kingdom-app .config-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.kingdom-app .config-row .ability-title { flex: 2; }
+.kingdom-app .config-row .ability-costs { flex: 1; }
+.kingdom-app .ability-description { width: 100%; margin-top: 6px; }
+
+.kingdom-app .outcome-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.kingdom-app .outcome-row .outcome-label { flex: 1; }
+.kingdom-app .outcome-row .outcome-text { flex: 2; }
+
+.kingdom-app .page-row,
+.kingdom-app .stage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kingdom-app .page-row input[type="text"],
+.kingdom-app .stage-row input[type="text"],
+.kingdom-app .page-row textarea,
+.kingdom-app .stage-row textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+  resize: both;
+}
+.kingdom-app .page-row input[type="color"],
+.kingdom-app .stage-row input[type="color"] {
+  width: 60px;
+  height: 28px;
+  padding: 2px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.kingdom-app .page-row .icon-btn,
+.kingdom-app .stage-row .icon-btn {
+  align-self: flex-end;
+}
+
+.kingdom-app .kc-event-type {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.kingdom-app .kc-event-type legend {
+  font-size: 12px;
+  color: rgba(244, 233, 192, 0.75);
+  padding: 0 4px;
+}
+.kingdom-app .kc-radio {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.kingdom-app .icon-btn {
+  border: none;
+  background: rgba(138, 28, 28, 0.6);
+  color: var(--color-yellow);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex: none;
+  line-height: 1;
+}
+
+.kingdom-app .kc-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.kingdom-app .kc-primary {
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.kingdom-app .kc-form-actions button:not(.kc-primary) {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(244, 233, 192, 0.75);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Window sizing guard — prevents the window being resized into a broken,
+   ultra-narrow/short state where the cq-unit layout can't cope.
+   ========================================================================== */
+.kingdom-app {
+  min-width: 900px;
+  min-height: 560px;
+}
+
+/* ==========================================================================
+   Dropdown fix — applies to every <select> in every app this module has
+   (they all share the .kingdom-app root class), not just one panel.
+   The bug: individual `select` rules throughout this stylesheet set a
+   light text color for the CLOSED box against this module's dark
+   backgrounds, but never touched the actual <option> list — that popup
+   is rendered by the OS/browser using its own native default (usually
+   a plain white background) regardless of the page's CSS, and many of
+   those `select` rules' light color inherits into the option text too.
+   Light text on that native white background is exactly "invisible
+   until you hover" (hover's highlight color is what finally gives it
+   enough contrast to read). `color-scheme: dark` is the actual fix —
+   it tells the browser to draw native form-control chrome, including
+   this dropdown popup, using its dark-mode palette instead of the
+   page's default light one. The explicit `option` colors underneath
+   are a fallback for the rarer engine that doesn't honor color-scheme
+   for option lists specifically.
+   ========================================================================== */
+.kingdom-app select {
+  color-scheme: dark;
+}
+.kingdom-app select option {
+  background-color: #1c1c22;
+  color: #e7e2d4;
+}
+
+/* ==========================================================================
+   Screen transition animations
+   A single reusable fade class, toggled by kingdom.js around visibility
+   swaps (tabs, select overlay, faction menu). Kept to opacity only —
+   animating `hidden`/display isn't possible, so kingdom.js flips `hidden`
+   partway through the transition via setTimeout.
+   ========================================================================== */
+.kingdom-app [data-view-panel],
+.kingdom-app .select-view,
+.kingdom-app .faction-menu,
+.kingdom-app .buildings-browser {
+  transition: opacity 160ms ease;
+  opacity: 1;
+}
+.kingdom-app [data-view-panel].kingdom-fade-out,
+.kingdom-app .select-view.kingdom-fade-out,
+.kingdom-app .faction-menu.kingdom-fade-out,
+.kingdom-app .buildings-browser.kingdom-fade-out {
+  opacity: 0;
+}
+/* Overlays (not the tab panels) get a little extra pop — scaling in
+   from slightly-small reads as more alive than a flat fade alone,
+   and transform is compositor-only so it's essentially free. */
+.kingdom-app .faction-menu,
+.kingdom-app .buildings-browser,
+.kingdom-app .kw-editor,
+.kingdom-app .kw-breakdown {
+  transition: opacity 160ms ease, transform 160ms ease;
+  transform: scale(1);
+}
+.kingdom-app .faction-menu.kingdom-fade-out,
+.kingdom-app .buildings-browser.kingdom-fade-out,
+.kingdom-app .kw-editor.kingdom-fade-out,
+.kingdom-app .kw-breakdown.kingdom-fade-out {
+  transform: scale(0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kingdom-app [data-view-panel],
+  .kingdom-app .select-view,
+  .kingdom-app .faction-menu,
+  .kingdom-app .buildings-browser {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Faction reputation menu
+   Cards reuse .faction-card (the domain banner look) directly, so this
+   file only needs to add the overlay chrome + the happiness stepper.
+   ========================================================================== */
+.kingdom-app .reputation-panel {
+  cursor: pointer;
+}
+.kingdom-app .reputation-panel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.kingdom-app .reputation-panel:focus-visible {
+  outline: 2px solid var(--color-gold-light);
+  outline-offset: 2px;
+}
+
+.kingdom-app .faction-menu {
+  position: absolute;
+  z-index: 10;
+  top: 2cqh;
+  left: 1.4cqw;
+  right: 1.4cqw;
+  bottom: 2cqh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 7, 6, 0.75);
+  border-radius: 1.4cqh;
+}
+
+/* Close button is a direct child of .faction-menu (not the scrolling
+   .faction-menu__inner below) so it can't be clipped by that container's
+   own overflow — the same bug class the tab bar hit earlier. */
+.kingdom-app .faction-menu__close {
+  position: absolute;
+  top: 1.4cqh;
+  right: 1.4cqw;
+  width: 3.4cqh;
+  height: 3.4cqh;
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(20, 21, 18, 0.9);
+  color: var(--color-yellow);
+  font-size: clamp(16px, 1.9cqh, 27px);
+  cursor: pointer;
+  z-index: 1;
+}
+.kingdom-app .faction-menu__close:hover {
+  background: rgba(138, 28, 28, 0.9);
+}
+
+.kingdom-app .faction-menu__inner {
+  display: flex;
+  align-items: stretch;
+  gap: 1.2cqw;
+  width: 92%;
+  height: 84%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 1cqh 0.4cqw;
+}
+
+.kingdom-app .faction-menu__card {
+  /* full height, same as a Decide-stage banner — just narrower so three
+     fit comfortably side by side */
+  flex: 0 0 300px !important;
+  height: 100%;
+}
+.kingdom-app .faction-menu__card .faction-card__portrait {
+  flex-basis: 34%;
+}
+
+.kingdom-app .faction-menu__pending {
+  background: rgba(138, 28, 28, 0.14) !important;
+}
+.kingdom-app .faction-menu__pending p {
+  margin: 0 0 4px;
+  font-size: 0.95em;
+}
+.kingdom-app .faction-menu__empty {
+  margin: auto;
+  color: rgba(244, 233, 192, 0.68);
+  font-style: italic;
+}
+
+.kingdom-app .faction-menu__invite {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  margin-top: 1.2cqh;
+}
+.kingdom-app .faction-menu__invite select {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(30, 31, 28, 0.9);
+  color: var(--color-yellow);
+}
+.kingdom-app .faction-menu__invite button {
+  border: 1px dashed rgba(232, 182, 81, 0.5);
+  background: transparent;
+  color: var(--color-gold-light);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.kingdom-app .faction-menu__invite button:hover {
+  background: rgba(232, 182, 81, 0.12);
+}
+
+.kingdom-app .faction-menu__happiness {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6cqw;
+  margin: 0.6cqh 0.7cqw 0;
+}
+.kingdom-app .faction-menu__happiness-value {
+  min-width: 2ch;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: clamp(17px, 2cqh, 28px);
+  color: var(--color-red);
+}
+.kingdom-app .faction-menu__step {
+  width: 2.6cqh;
+  height: 2.6cqh;
+  min-width: 22px;
+  min-height: 22px;
+  border: 1px solid rgba(120, 92, 40, 0.5);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--color-ink);
+  cursor: pointer;
+  line-height: 1;
+}
+.kingdom-app .faction-menu__step:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* ==========================================================================
+   KW badge + GM editor + read-only breakdown
+   ========================================================================== */
+.kingdom-app .stat-badge {
+  position: relative;
+  cursor: pointer;
+}
+.kingdom-app .kw-editor,
+.kingdom-app .kw-breakdown {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 0.6cqh);
+  right: 0;
+  width: max-content;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(15, 16, 14, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  text-align: left;
+  cursor: default;
+}
+.kingdom-app .kw-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .kw-editor input {
+  width: 90px;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-yellow);
+}
+.kingdom-app .kw-editor button {
+  margin-top: 2px;
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  font-weight: 700;
+  padding: 5px 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.kingdom-app .kw-breakdown h4 {
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--color-yellow);
+  letter-spacing: 0.04em;
+}
+.kingdom-app .kw-breakdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.kingdom-app .kw-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .kw-breakdown li span:last-child {
+  flex: none;
+  color: var(--color-green-accent);
+  font-weight: 700;
+}
+.kingdom-app .kw-breakdown li.kw-breakdown__pending {
+  color: rgba(244, 233, 192, 0.65);
+}
+.kingdom-app .kw-breakdown li.kw-breakdown__pending em {
+  font-style: italic;
+}
+.kingdom-app .kw-breakdown li.kw-breakdown__pending span:last-child {
+  color: var(--color-gold-light);
+}
+.kingdom-app .kw-breakdown__total {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 0 !important;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--color-yellow);
+}
+.kingdom-app .kw-breakdown__total span:last-child {
+  color: var(--color-green-accent);
+}
+.kingdom-app .kw-breakdown__hint {
+  margin: 2px 0 0 !important;
+  font-size: 10px;
+  font-style: italic;
+  color: rgba(244, 233, 192, 0.55);
+}
+
+/* ==========================================================================
+   Resolve toolbar (lock / start resolving / hex + district macros)
+   ========================================================================== */
+.kingdom-app .resolve-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8cqw;
+  padding: 1cqh 1.4cqw 0;
+  min-height: 3.2cqh;
+}
+.kingdom-app .resolve-toolbar__macros {
+  display: flex;
+  gap: 0.6cqw;
+  margin-right: auto;
+}
+.kingdom-app .resolve-toolbar__btn {
+  border: 1px solid rgba(232, 182, 81, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(244, 233, 192, 0.85);
+  font-family: var(--font-display);
+  font-size: clamp(14px, 1.5cqh, 21px);
+  padding: 0.6cqh 1.2cqw;
+  border-radius: 0.6cqh;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.kingdom-app .resolve-toolbar__btn:hover {
+  background: rgba(232, 182, 81, 0.18);
+}
+.kingdom-app .resolve-toolbar__btn--primary {
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  border-color: rgba(232, 182, 81, 0.8);
+}
+.kingdom-app .resolve-toolbar__lock-note {
+  font-size: clamp(14px, 1.45cqh, 21px);
+  color: rgba(244, 233, 192, 0.65);
+}
+
+/* dim entries once locked so the frozen order reads clearly, and mark
+   drag state / resolved state */
+.kingdom-app .tl-item[draggable="true"] .tl-card {
+  cursor: grab;
+}
+.kingdom-app .tl-item.is-dragging .tl-card {
+  opacity: 0.4;
+}
+.kingdom-app .tl-card--resolved {
+  filter: sepia(0.3) saturate(0.6);
+}
+.kingdom-app .tl-card--resolved::after {
+  content: "\2713";
+  position: absolute;
+  top: 0.5cqh;
+  left: 0.5cqh;
+  width: 2.2cqh;
+  height: 2.2cqh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(63, 107, 51, 0.9);
+  color: var(--color-yellow);
+  font-size: clamp(14px, 1.45cqh, 21px);
+}
+
+/* ==========================================================================
+   Resolve wizard — one action at a time
+   ========================================================================== */
+.kingdom-app .resolve-wizard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4cqh;
+  padding: 1cqh 2cqw 2cqh;
+}
+
+.kingdom-app .resolve-wizard__progress {
+  font-family: var(--font-display);
+  font-size: clamp(16px, 1.9cqh, 27px);
+  color: rgba(244, 233, 192, 0.75);
+  letter-spacing: 0.04em;
+}
+
+.kingdom-app .resolve-wizard__card {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  flex: 1;
+  min-height: 0;
+  max-height: 40cqh;
+  border-radius: 1.2cqh;
+  overflow: hidden;
+  background-color: #7A5A32;
+  background-position: center 25%;
+  background-size: cover;
+  filter: sepia(0.6);
+  border: 1px solid rgba(120, 92, 40, 0.7);
+  box-shadow: 0 1.2cqh 2.4cqh rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+}
+.kingdom-app .resolve-wizard__veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+    rgba(20, 21, 18, 0.15) 0%,
+    rgba(20, 21, 18, 0.6) 55%,
+    rgba(20, 21, 18, 0.92) 100%);
+}
+.kingdom-app .resolve-wizard__content {
+  position: relative;
+  z-index: 1;
+  padding: 2cqh 2cqw;
+  overflow-y: auto;
+  max-height: 100%;
+}
+.kingdom-app .resolve-wizard__domain {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(15px, 1.7cqh, 24px);
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .resolve-wizard__action {
+  margin: 0.2cqh 0 0.8cqh;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2.6cqh, 36px);
+  background: linear-gradient(180deg, #ffffff 0%, #fff6df 45%, var(--color-gold-light) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+.kingdom-app .resolve-wizard__description {
+  font-size: clamp(14px, 1.5cqh, 21px);
+  line-height: 1.5;
+  color: rgba(244, 233, 192, 0.9);
+}
+.kingdom-app .resolve-wizard__description p { margin: 0 0 0.6cqh; }
+.kingdom-app .resolve-wizard__description ul { margin: 0; padding-left: 1.2cqh; }
+
+.kingdom-app .resolve-wizard__apply {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6cqh;
+  padding: 1cqh 1.2cqw;
+  border-radius: 0.8cqh;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.kingdom-app .resolve-wizard__apply-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6cqw;
+  font-size: clamp(13px, 1.35cqh, 20px);
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .resolve-wizard__apply-row input[type="number"] {
+  width: 70px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-yellow);
+}
+.kingdom-app .resolve-wizard__apply-row select {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(30, 31, 28, 0.9);
+  color: var(--color-yellow);
+}
+.kingdom-app .resolve-wizard__apply-row button {
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.kingdom-app .resolve-wizard__nav {
+  display: flex;
+  gap: 0.8cqw;
+}
+.kingdom-app .resolve-wizard__nav button {
+  border: 1px solid rgba(232, 182, 81, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(244, 233, 192, 0.85);
+  font-family: var(--font-display);
+  font-size: clamp(17px, 1.9cqh, 25px);
+  padding: 0.7cqh 1.6cqw;
+  border-radius: 0.6cqh;
+  cursor: pointer;
+}
+.kingdom-app .resolve-wizard__nav button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.kingdom-app .resolve-wizard__finish {
+  background: linear-gradient(180deg, #6FA85A, #3F6B33) !important;
+  color: var(--color-yellow) !important;
+  border-color: rgba(111, 168, 90, 0.7) !important;
+}
+
+/* Ability effect sub-row in the GM config editor (Proposed KW / Faction / Proposed happiness) */
+.kingdom-app .ability-effects {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.kingdom-app .kc-inline-label {
+  display: flex !important;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: rgba(244, 233, 192, 0.62);
+  flex: 1;
+}
+.kingdom-app .kc-inline-label input,
+.kingdom-app .kc-inline-label select {
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+}
+
+/* ==========================================================================
+   Config app: Kingdom Name bar
+   ========================================================================== */
+.kingdom-app .kc-name-bar {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+.kingdom-app .kc-name-bar label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: rgba(244, 233, 192, 0.68);
+  flex: 1;
+  max-width: 360px;
+}
+.kingdom-app .kc-name-bar input {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-yellow);
+}
+.kingdom-app .kc-name-bar button {
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.kingdom-app .kc-list-item__meta {
+  opacity: 0.5;
+  font-size: 10px;
+}
+
+/* ==========================================================================
+   KW editor breakdown note
+   ========================================================================== */
+.kingdom-app .kw-editor__note {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: rgba(64, 255, 87, 0.85);
+  max-width: 160px;
+}
+
+/* ==========================================================================
+   Faction presence (menu)
+   ========================================================================== */
+.kingdom-app .faction-menu__presence-toggle {
+  margin: 0.6cqh 0.9cqw 1cqh;
+  padding: 0.4cqh 0.6cqw;
+  border: 1px solid rgba(120, 92, 40, 0.4);
+  border-radius: 0.4cqh;
+  background: rgba(255, 255, 255, 0.35);
+  color: rgba(26, 28, 30, 0.75);
+  font-size: clamp(12px, 1.2cqh, 18px);
+  cursor: pointer;
+}
+.kingdom-app .faction-menu__presence-toggle:hover {
+  background: rgba(138, 28, 28, 0.25);
+}
+
+/* ==========================================================================
+   Config app: GM map utilities bar
+   ========================================================================== */
+.kingdom-app .kc-utilities {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px 10px;
+}
+.kingdom-app .kc-utilities__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.kingdom-app .kc-utilities__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.kingdom-app .kc-utilities__label {
+  flex: none;
+  width: 108px;
+  font-size: 11px;
+  color: rgba(244, 233, 192, 0.62);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.kingdom-app .kc-utilities__spacer {
+  flex: 1;
+}
+.kingdom-app .kc-utilities__toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: rgba(244, 233, 192, 0.72);
+  margin-left: 6px;
+}
+.kingdom-app .kc-utilities button {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(244, 233, 192, 0.85);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kingdom-app .kc-utilities button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.kingdom-app .kc-utilities button.kc-danger {
+  border-color: rgba(138, 28, 28, 0.5);
+  color: rgba(244, 200, 200, 0.9);
+}
+.kingdom-app .kc-utilities button.kc-danger:hover {
+  background: rgba(138, 28, 28, 0.25);
+}
+
+/* ==========================================================================
+   Resolve wizard: contextual Claim Hex / Build District prompt
+   ========================================================================== */
+.kingdom-app .resolve-wizard__macro-prompt {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0.8cqh 1.2cqw;
+  border-radius: 0.8cqh;
+  background: rgba(232, 182, 81, 0.1);
+  border: 1px solid rgba(232, 182, 81, 0.35);
+}
+.kingdom-app .resolve-wizard__macro-prompt p {
+  margin: 0;
+  font-size: clamp(13px, 1.35cqh, 20px);
+  color: rgba(244, 233, 192, 0.85);
+  flex: 1;
+}
+.kingdom-app .resolve-wizard__macro-prompt .resolve-toolbar__btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Persistent tax reminder (faction menu)
+   ========================================================================== */
+.kingdom-app .faction-menu__tax-badge {
+  margin: 0 0.9cqw 0.6cqh;
+  padding: 0.3cqh 0.6cqw;
+  text-align: center;
+  font-size: clamp(12px, 1.2cqh, 18px);
+  letter-spacing: 0.02em;
+  color: rgba(26, 28, 30, 0.75);
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 0.4cqh;
+  border: 1px dashed rgba(120, 92, 40, 0.4);
+}
+
+/* ==========================================================================
+   Resolve wizard: contextual action UIs (taxes, wartime, bribe, effects)
+   ========================================================================== */
+.kingdom-app .resolve-wizard__contextual {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6cqh;
+  padding: 1cqh 1.2cqw;
+  border-radius: 0.8cqh;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.kingdom-app .resolve-wizard__contextual label {
+  display: flex;
+  align-items: center;
+  gap: 0.5cqw;
+  font-size: clamp(13px, 1.35cqh, 20px);
+  color: rgba(244, 233, 192, 0.75);
+}
+.kingdom-app .resolve-wizard__contextual select {
+  flex: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(30, 31, 28, 0.9);
+  color: var(--color-yellow);
+}
+.kingdom-app .resolve-wizard__contextual-hint {
+  margin: 0;
+  font-size: clamp(13px, 1.25cqh, 18px);
+  font-style: italic;
+  color: rgba(244, 233, 192, 0.62);
+}
+
+.kingdom-app .resolve-wizard__reminder {
+  width: 100%;
+  max-width: 640px;
+  padding: 0.7cqh 1.2cqw;
+  border-radius: 0.6cqh;
+  background: rgba(64, 255, 87, 0.08);
+  border: 1px solid rgba(64, 255, 87, 0.3);
+  color: rgba(244, 233, 192, 0.9);
+  font-size: clamp(13px, 1.35cqh, 20px);
+  line-height: 1.4;
+}
+.kingdom-app .resolve-wizard__reminder-inline {
+  margin: 0.4cqh 0 0;
+  font-size: clamp(13px, 1.3cqh, 19px);
+  color: var(--color-green-accent);
+}
+
+.kingdom-app .resolve-wizard__tax-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6cqw;
+  padding: 0.4cqh 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.kingdom-app .resolve-wizard__tax-row:last-child { border-bottom: none; }
+.kingdom-app .resolve-wizard__tax-faction {
+  flex: 0 0 25%;
+  font-size: clamp(13px, 1.35cqh, 20px);
+  color: rgba(244, 233, 192, 0.85);
+}
+.kingdom-app .resolve-wizard__tax-buttons {
+  display: flex;
+  gap: 0.3cqw;
+}
+.kingdom-app .resolve-wizard__tax-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(244, 233, 192, 0.75);
+  padding: 0.3cqh 0.7cqw;
+  border-radius: 0.4cqh;
+  font-size: clamp(12px, 1.2cqh, 18px);
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.kingdom-app .resolve-wizard__tax-btn.is-active {
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+  color: var(--color-ink);
+  border-color: rgba(232, 182, 81, 0.8);
+}
+.kingdom-app .resolve-wizard__tax-current {
+  margin-left: auto;
+  font-size: clamp(12px, 1.2cqh, 18px);
+  color: rgba(244, 233, 192, 0.62);
+}
+
+.kingdom-app .resolve-wizard__custom-effect {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqh;
+  padding: 0.8cqh 1.2cqw;
+}
+.kingdom-app .resolve-wizard__custom-effect input,
+.kingdom-app .resolve-wizard__custom-effect textarea {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-yellow);
+  font-family: var(--font-body);
+  font-size: clamp(13px, 1.25cqh, 18px);
+  resize: both;
+}
+.kingdom-app .resolve-wizard__custom-effect button {
+  align-self: flex-start;
+}
+
+.kingdom-app .resolve-wizard__show-more {
+  border: 1px solid rgba(232, 182, 81, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(244, 233, 192, 0.85);
+  font-family: var(--font-display);
+  font-size: clamp(14px, 1.5cqh, 21px);
+  padding: 0.6cqh 1.2cqw;
+  border-radius: 0.6cqh;
+  cursor: pointer;
+}
+.kingdom-app .resolve-wizard__show-more:hover {
+  background: rgba(232, 182, 81, 0.18);
+}
+
+/* ==========================================================================
+   Canvas hover tooltip + build-dialog preview
+   These render OUTSIDE .kingdom-app (the tooltip is appended straight to
+   document.body so it can float over the canvas; the dialog preview is
+   inside Foundry's own DialogV2 chrome) — deliberately unscoped.
+   ========================================================================== */
+.pf2e-rk-tile-tooltip {
+  position: fixed;
+  z-index: 100000;
+  display: none;
+  max-width: 320px;
+  pointer-events: none;
+  background: rgba(15, 16, 14, 0.96);
+  border: 1px solid rgba(232, 182, 81, 0.45);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  font-family: "Alegreya Sans", sans-serif;
+  color: #F4E9C0;
+}
+.pf2e-rk-tile-tooltip__img {
+  width: 100%;
+  height: 90px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+.pf2e-rk-tile-tooltip__body {
+  padding: 8px 10px;
+}
+.pf2e-rk-tile-tooltip__body h4 {
+  margin: 0 0 4px;
+  font-family: "Marcellus", serif;
+  font-weight: 400;
+  font-size: 14px;
+  color: #F4E9C0;
+}
+.pf2e-rk-tile-tooltip__traits {
+  margin: 0 0 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(244, 233, 192, 0.65);
+}
+.pf2e-rk-tile-tooltip__level {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(232, 182, 81, 0.25);
+  color: #E8B651;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.pf2e-rk-tile-tooltip__unavailable {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: #e68a4f;
+}
+.pf2e-rk-tile-tooltip__effect {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgba(244, 233, 192, 0.85);
+  max-height: 140px;
+  overflow: hidden;
+}
+.pf2e-rk-tile-tooltip__effect p {
+  margin: 0 0 6px;
+}
+
+/* ==========================================================================
+   Buildings browser button + panel
+   ========================================================================== */
+.kingdom-app .buildings-browser-btn {
+  position: relative;
+  z-index: 3;
+  flex: none;
+  align-self: center;
+  width: 3.4cqh;
+  height: 3.4cqh;
+  min-width: 26px;
+  min-height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(20, 21, 18, 0.55);
+  color: var(--color-yellow);
+  font-size: clamp(15px, 1.7cqh, 24px);
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.kingdom-app .buildings-browser-btn:hover {
+  background: rgba(20, 21, 18, 0.8);
+  transform: scale(1.08);
+}
+
+.kingdom-app .buildings-browser {
+  position: absolute;
+  z-index: 10;
+  top: 2cqh;
+  left: 1.4cqw;
+  right: 1.4cqw;
+  bottom: 2cqh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 7, 6, 0.9);
+  border-radius: 1.4cqh;
+  padding: 2cqh 2cqw;
+}
+.kingdom-app .buildings-browser__close {
+  position: absolute;
+  top: 1.4cqh;
+  right: 1.4cqw;
+  width: 3.4cqh;
+  height: 3.4cqh;
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(20, 21, 18, 0.9);
+  color: var(--color-yellow);
+  font-size: clamp(16px, 1.9cqh, 27px);
+  cursor: pointer;
+  z-index: 1;
+}
+.kingdom-app .buildings-browser__close:hover {
+  background: rgba(138, 28, 28, 0.9);
+}
+.kingdom-app .buildings-browser__title {
+  flex: none;
+  margin: 0 0 1.2cqh;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(19px, 2.4cqh, 33px);
+  background: linear-gradient(180deg, #ffffff 0%, #fff6df 45%, var(--color-gold-light) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Building detail modal (click a card in the Buildings Browser)
+   ========================================================================== */
+.kingdom-app .building-detail-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kingdom-app .building-detail-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+.kingdom-app .building-detail-modal__panel {
+  position: relative;
+  z-index: 1;
+  width: min(90%, 480px);
+  max-height: 85%;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #E4D5AE, #D2BD8C);
+  border-radius: 1cqh;
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.5),
+    0 2cqh 4cqh rgba(0, 0, 0, 0.6);
+}
+.kingdom-app .building-detail-modal__close {
+  position: absolute;
+  top: 0.8cqh;
+  right: 0.8cqw;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.kingdom-app .building-detail-modal__close:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+.kingdom-app .building-detail-modal__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-color: #C9B084;
+  background-position: center center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  filter: sepia(0.4) contrast(1.05) saturate(1.1);
+}
+.kingdom-app .building-detail-modal__body {
+  padding: 1.5cqh 1.5cqw 2cqh;
+}
+.kingdom-app .building-detail-modal__body h3 {
+  margin: 0 0 0.4cqh;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(20px, 2.6cqh, 32px);
+  color: var(--color-ink);
+}
+.kingdom-app .building-detail-modal__meta {
+  margin: 0 0 0.6cqh;
+  font-size: 13px;
+  color: rgba(26, 28, 30, 0.75);
+}
+.kingdom-app .building-detail-modal__traits,
+.kingdom-app .building-detail-modal__prereqs {
+  margin: 0 0 0.6cqh;
+  font-size: 12px;
+  font-style: italic;
+  color: rgba(26, 28, 30, 0.68);
+}
+.kingdom-app .building-detail-modal__effect {
+  margin-top: 1cqh;
+  padding-top: 1cqh;
+  border-top: 1px solid rgba(156, 124, 56, 0.4);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-ink);
+}
+.kingdom-app .buildings-browser__grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1cqh 1cqw;
+  padding-right: 0.4cqw;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 124, 56, 0.55) transparent;
+}
+.kingdom-app .buildings-browser__grid::-webkit-scrollbar { width: 0.7cqh; }
+.kingdom-app .buildings-browser__grid::-webkit-scrollbar-thumb {
+  background: rgba(156, 124, 56, 0.55);
+  border-radius: 999px;
+}
+
+.kingdom-app .building-card {
+  background: linear-gradient(180deg, #E4D5AE, #D2BD8C);
+  border-radius: 0.6cqh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.45),
+    0 0.6cqh 1.4cqh rgba(0, 0, 0, 0.35);
+}
+.kingdom-app .building-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 182, 81, 0.7),
+    0 0.9cqh 1.8cqh rgba(0, 0, 0, 0.45);
+}
+.kingdom-app .building-card--unavailable {
+  opacity: 0.55;
+  filter: grayscale(0.5);
+}
+.kingdom-app .building-card__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background-color: #C9B084;
+  background-position: center center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  filter: sepia(0.4) contrast(1.05) saturate(1.1);
+}
+.kingdom-app .building-card__body {
+  padding: 0.8cqh 0.8cqw 1cqh;
+}
+.kingdom-app .building-card__name {
+  margin: 0 0 0.3cqh;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(16px, 1.8cqh, 25px);
+  color: var(--color-ink);
+}
+.kingdom-app .building-card__meta {
+  margin: 0 0 0.3cqh;
+  font-size: clamp(13px, 1.25cqh, 18px);
+  color: rgba(26, 28, 30, 0.72);
+}
+.kingdom-app .building-card__traits {
+  margin: 0 0 0.3cqh;
+  font-size: clamp(12px, 1.15cqh, 17px);
+  font-style: italic;
+  color: rgba(26, 28, 30, 0.65);
+}
+.kingdom-app .building-card__prereqs {
+  margin: 0 0 0.5cqh;
+  font-size: clamp(12px, 1.15cqh, 17px);
+  color: rgba(138, 28, 28, 0.85);
+}
+.kingdom-app .building-card__status {
+  display: inline-block;
+  padding: 0.2cqh 0.7cqw;
+  border-radius: 999px;
+  font-size: clamp(12px, 1.15cqh, 17px);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.kingdom-app .building-card__status--yes {
+  background: rgba(63, 107, 51, 0.25);
+  color: #2b5a1e;
+}
+.kingdom-app .building-card__status--no {
+  background: rgba(138, 28, 28, 0.18);
+  color: #7a1f1f;
+}
+
+/* ==========================================================================
+   Build District picker (rendered inside Foundry's own DialogV2 chrome,
+   deliberately unscoped since it's outside .kingdom-app)
+   ========================================================================== */
+.pf2e-rk-bpicker__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.pf2e-rk-bpicker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.pf2e-rk-bpicker.hide-unavailable .pf2e-rk-bcard--unavailable {
+  display: none;
+}
+.pf2e-rk-bcard {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.04);
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.pf2e-rk-bcard:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+.pf2e-rk-bcard.is-selected {
+  border-color: #e8b651;
+  background: rgba(232, 182, 81, 0.15);
+}
+.pf2e-rk-bcard--unavailable {
+  opacity: 0.5;
+}
+.pf2e-rk-bcard__thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-color: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+.pf2e-rk-bcard__name {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.pf2e-rk-bcard__meta {
+  font-size: 10px;
+  opacity: 0.7;
+}
+.pf2e-rk-bcard__badge {
+  margin-top: 4px;
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(138, 28, 28, 0.15);
+  color: #8a1c1c;
+  display: inline-block;
+}
+
+/* ==========================================================================
+   Small polish pass — micro-interactions, kept to transform/opacity only
+   so none of this costs a layout reflow (the earlier lag culprit).
+   ========================================================================== */
+
+/* Tactile press feedback on the main interactive surfaces */
+.kingdom-app .tab:active,
+.kingdom-app .confirm-btn:active,
+.kingdom-app .resolve-toolbar__btn:active,
+.kingdom-app .resolve-wizard__nav button:active,
+.kingdom-app .select-back:active,
+.kingdom-app .kingdom-config-btn:active,
+.kingdom-app .buildings-browser-btn:active,
+.kingdom-app .action-chip:not(.is-dragging):active {
+  transform: scale(0.96);
+}
+.kingdom-app .faction-card:not(.faction-menu__card):active {
+  transform: scale(1.03);
+}
+
+/* A soft, slow breathing glow on the active tab so the current stage
+   reads as "alive" rather than just a static highlighted pill. Slow and
+   subtle on purpose — this is the one continuous animation added, and
+   it's opacity-only on a single small element. */
+@keyframes kingdom-tab-glow {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.42), inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -10px 16px rgba(0,0,0,0.18), 0 0 0.6cqh rgba(232,182,81,0); }
+  50% { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.42), inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -10px 16px rgba(0,0,0,0.18), 0 0 1.4cqh rgba(232,182,81,0.55); }
+}
+.kingdom-app .tab--active {
+  animation: kingdom-tab-glow 3.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kingdom-app .tab--active { animation: none; }
+}
+
+/* Confirm button gets a touch more presence on hover, matching the
+   "primary action" weight it actually has */
+.kingdom-app .confirm-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow:
+    inset 0 1px 0 rgba(232, 182, 81, 0.5),
+    0 0.8cqh 1.8cqh rgba(232, 182, 81, 0.25);
+}
+
+/* Slot fill-in gets a quick pop instead of appearing instantly */
+@keyframes kingdom-slot-pop {
+  from { transform: scale(0.92); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
+}
+.kingdom-app .slot--filled {
+  animation: kingdom-slot-pop 160ms ease-out;
+}
+
+/* Building/faction status badges get a touch of glow instead of flat color */
+.kingdom-app .building-card__status--yes {
+  box-shadow: 0 0 0.6cqh rgba(63, 107, 51, 0.35);
+}
+.kingdom-app .building-card__status--no {
+  box-shadow: 0 0 0.6cqh rgba(138, 28, 28, 0.25);
+}
+
+/* Building cards lift slightly on hover, matching the domain-card feel
+   without the earlier flex-basis cost — this one's just a shadow/transform */
+.kingdom-app .building-card {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.kingdom-app .building-card:not(.building-card--unavailable):hover {
+  transform: translateY(-0.3cqh);
+  box-shadow:
+    inset 0 0 0 1px rgba(156, 124, 56, 0.6),
+    0 1cqh 2cqh rgba(0, 0, 0, 0.45);
+}
+
+/* Faction menu cards get the same subtle lift */
+.kingdom-app .faction-menu__card {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.kingdom-app .faction-menu__card:hover {
+  transform: translateY(-0.3cqh);
+}
+
+/* ==========================================================================
+   Chat effect card (rendered inside a normal ChatMessage, unscoped)
+   ========================================================================== */
+.pf2e-rk-effect-card {
+  border: 1px solid rgba(232, 182, 81, 0.4);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(232, 182, 81, 0.08);
+}
+.pf2e-rk-effect-card h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.pf2e-rk-effect-card p {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Research Tree app — "Engraved Atlas" theme
+   Built around the module's own palette (gold/bronze/ink/parchment, the
+   same fonts as everywhere else) instead of a generic dark-mode-plus-
+   neon-accent look. Nodes read as heraldic medallions set into a map;
+   connections read as engraved conduits, not sci-fi glow lines. Most
+   colors below are var()-driven from --rt-* custom properties set inline
+   in research-tree.hbs from the GM's Tree Configuration (see research.js
+   DEFAULT_CONFIG) — the hardcoded hex values here are fallbacks for
+   properties that aren't (yet) exposed as a config field, plus base
+   values for animations that shouldn't shift with re-theming.
+   ========================================================================== */
+
+/* ---- Layout shell ---- */
+.kingdom-app .research-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--font-body);
+  color: rgba(238, 224, 191, 0.92);
+  background: #0e0c08;
+}
+.kingdom-app .research-tree__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(156, 124, 56, 0.3);
+  background: rgba(16, 13, 9, 0.92);
+  backdrop-filter: blur(4px);
+  flex-wrap: wrap;
+  z-index: 10;
+}
+.kingdom-app .research-tree__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.kingdom-app .research-tree__gm-controls {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* ---- Research points badge ---- */
+.kingdom-app .research-points {
+  position: relative;
+  padding: 5px 14px;
+  border-radius: 4px;
+  background: rgba(156, 124, 56, 0.12);
+  border: 1px solid rgba(232, 182, 81, 0.4);
+  font-size: 13px;
+  user-select: none;
+}
+.kingdom-app .research-points__trigger {
+  cursor: pointer;
+}
+.kingdom-app .research-points strong {
+  font-family: var(--font-display);
+  font-size: 17px;
+  color: var(--color-gold-light, #E8B651);
+  margin-right: 4px;
+}
+.kingdom-app .research-points__editor {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 4px;
+  background: rgba(14, 12, 8, 0.98);
+  border: 1px solid rgba(232, 182, 81, 0.4);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+.kingdom-app .research-points__editor input {
+  width: 70px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(232, 182, 81, 0.4);
+  background: rgba(156, 124, 56, 0.12);
+  color: var(--color-gold-light, #E8B651);
+  font-family: var(--font-body);
+}
+.kingdom-app .research-points__editor button {
+  border: 1px solid rgba(232, 182, 81, 0.6);
+  background: linear-gradient(180deg, #b3873a, #7a5c22);
+  color: #FBF3DD;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* ---- Zoom controls ---- */
+.kingdom-app .research-tree__zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgba(156, 124, 56, 0.35);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.kingdom-app .research-tree__zoom-btn {
+  border: none;
+  background: rgba(156, 124, 56, 0.12);
+  color: var(--color-gold-light, #E8B651);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 44px;
+}
+.kingdom-app .research-tree__zoom-btn:hover {
+  background: rgba(156, 124, 56, 0.3);
+}
+
+/* ---- Canvas / viewport backdrop ----
+   Three alternate looks selectable in Tree Configuration via
+   [data-bg-style], plus a bare "solid" option with no pattern at all.
+   The pattern lives on the viewport (::before), not the pannable
+   .research-canvas__inner, so it stays put as ambient texture instead
+   of scrolling with the content — same reasoning the old starfield
+   used, just kept for every style rather than just one. */
+.kingdom-app .research-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--rt-canvas-bg);
+  cursor: grab;
+  touch-action: none;
+}
+.kingdom-app .research-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.kingdom-app .research-canvas::after {
+  /* Vignette — every style gets this, it's what keeps the edges of a
+     5000px+ canvas from looking like they just cut off arbitrarily. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 min(220px, 18vw) rgba(0, 0, 0, 0.65);
+}
+
+/* Engraved Atlas (default): faint concentric contour rings, like an old
+   survey map, in the accent color rather than a neutral grey. */
+.kingdom-app .research-canvas[data-bg-style="atlas"] {
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(156, 124, 56, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 75%, rgba(138, 28, 28, 0.08) 0%, transparent 50%),
+    var(--rt-canvas-bg);
+}
+.kingdom-app .research-canvas[data-bg-style="atlas"]::before {
+  background-image:
+    repeating-radial-gradient(circle at 20% 30%, transparent 0 46px, rgba(232, 182, 81, 0.035) 47px 48px),
+    repeating-radial-gradient(circle at 85% 70%, transparent 0 60px, rgba(232, 182, 81, 0.03) 61px 62px);
+}
+
+/* Aged Parchment: warmer, browner, mottled — reads as old paper rather
+   than deep space. */
+.kingdom-app .research-canvas[data-bg-style="parchment"] {
+  background:
+    radial-gradient(circle at 25% 20%, rgba(196, 160, 90, 0.16) 0%, transparent 55%),
+    radial-gradient(circle at 78% 78%, rgba(120, 90, 45, 0.20) 0%, transparent 55%),
+    radial-gradient(circle at 60% 40%, rgba(90, 60, 30, 0.12) 0%, transparent 60%),
+    #241a0f;
+}
+.kingdom-app .research-canvas[data-bg-style="parchment"]::before {
+  background-image:
+    radial-gradient(circle, rgba(232, 182, 81, 0.10) 1px, transparent 1px);
+  background-size: 5px 5px;
+  opacity: 0.5;
+}
+
+/* Starfield: the module's original look, kept as an explicit alternate
+   choice rather than removed outright — some tables may genuinely want
+   the "kingdom's magic touches the void" read for a Magister-flavored
+   tree even if it's no longer the default. */
+.kingdom-app .research-canvas[data-bg-style="starfield"] {
+  /* PoE2's actual tree background is mostly plain near-black — the
+     colored "zone" look in its screenshots comes from dense clusters of
+     small nodes plus their own glow, not an ambient nebula wash behind
+     everything. This module already has a real equivalent for GM-placed
+     color zones (the Region tool), so the built-in backdrop is kept
+     deliberately plain rather than competing with it with its own
+     built-in color wash — the previous version's purple/blue nebula is
+     gone, not just re-tinted. */
+  background: var(--rt-canvas-bg);
+}
+.kingdom-app .research-canvas[data-bg-style="starfield"]::before {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.5) 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.22) 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1.5px);
+  background-size: 140px 140px, 90px 90px, 46px 46px;
+  background-position: 0 0, 30px 60px, 15px 15px;
+}
+
+/* Solid: no gradients or pattern, just the flat configured color — for
+   a GM who wants to drop in their own background image via a full-size
+   Region/Image instead and doesn't want this layer fighting with it. */
+.kingdom-app .research-canvas[data-bg-style="solid"] {
+  background: var(--rt-canvas-bg);
+}
+
+.kingdom-app .research-canvas.is-panning {
+  cursor: grabbing;
+}
+.kingdom-app .research-canvas.is-linking {
+  cursor: crosshair;
+}
+.kingdom-app .research-canvas__scaler { position: relative; }
+.kingdom-app .research-canvas__inner {
+  position: relative;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Faint border around the tree's actual placement area — makes the
+   boundary visible against the ambient backdrop once you're panned/
+   zoomed out far enough to see past it, especially useful once the
+   area's been expanded in Config for a large tree. */
+.kingdom-app .research-canvas__inner--bordered {
+  outline: 1px solid rgba(232, 182, 81, 0.22);
+  outline-offset: 0px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+/* ---- Connection lines ---- */
+.kingdom-app .research-connections {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.kingdom-app .research-connection {
+  stroke-linecap: round;
+}
+
+/* Engraved (default) — a steady line, no marching-ants dash, with only
+   the ACTIVE state given a slow shimmer so attention naturally lands on
+   the paths that actually matter (what's unlocked / researchable) — a
+   locked line just recedes instead of also fighting for attention. */
+.kingdom-app .research-connection--style-engraved {
+  stroke-opacity: 0.55;
+}
+.kingdom-app .research-connection--style-engraved.research-connection--active {
+  filter: drop-shadow(0 0 calc(3px * var(--rt-glow, 1)) var(--rt-line-active));
+  animation: rk-line-shimmer 2.6s ease-in-out infinite;
+}
+
+.kingdom-app .research-connection--style-solid {
+  stroke-opacity: 0.6;
+}
+.kingdom-app .research-connection--style-solid.research-connection--active {
+  stroke-opacity: 0.9;
+  filter: drop-shadow(0 0 calc(3px * var(--rt-glow, 1)) var(--rt-line-active));
+}
+
+.kingdom-app .research-connection--style-dashed {
+  stroke-dasharray: 6 8;
+  animation: rk-dash-flow 3s linear infinite;
+}
+.kingdom-app .research-connection--style-dashed.research-connection--active {
+  stroke-dasharray: 10 6;
+  filter: drop-shadow(0 0 calc(4px * var(--rt-glow, 1)) var(--rt-line-active));
+  animation: rk-dash-flow 1.8s linear infinite;
+}
+
+.kingdom-app .research-connection--active {
+  stroke: var(--rt-line-active);
+}
+.kingdom-app .research-connection--preview {
+  stroke: var(--rt-accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 5;
+  stroke-opacity: 0.85;
+  filter: drop-shadow(0 0 4px var(--rt-accent));
+}
+@keyframes rk-dash-flow {
+  to { stroke-dashoffset: -40; }
+}
+@keyframes rk-line-shimmer {
+  0%, 100% { stroke-opacity: 0.65; }
+  50% { stroke-opacity: 1; }
+}
+
+/* ---- Nodes ----
+   PoE2-style: small circular gems on a dark void, not large plaques —
+   the node itself carries no text (name/cost/status live in a caption
+   below it instead — see the comment further down for why that's not
+   just a style choice).
+
+   Performance note (read before changing glow/animation here again):
+   an earlier version ran an infinite CSS animation (filter or
+   box-shadow) on EVERY unlocked node and EVERY available-to-unlock
+   node, all the time, for as long as the window was open. That's fine
+   for a handful of nodes but scales badly — a tree with dozens of
+   unlocked nodes means dozens of simultaneously-animating filters,
+   which is genuinely expensive to keep repainting every frame, and was
+   the most likely cause of a reported slowdown ("buttons take a while
+   to resolve"). Ambient state (locked/available/unlocked) is now
+   communicated with STATIC styling only — no animation loop runs
+   merely because a node exists in a given state. The only animations
+   left are ones that are naturally self-limiting: :hover (one node at
+   a time, only while the cursor is actually there) and the one-shot
+   unlock burst (a few hundred ms, once, per unlock). If ambient motion
+   is wanted again later, scope it to :hover or to a small fixed number
+   of nodes, not to every node matching a state class. */
+.kingdom-app .research-node {
+  position: absolute;
+  z-index: 2;
+  border-radius: 50%;
+  user-select: none;
+  transition: transform 0.15s ease;
+}
+/* .research-node--will-scale is toggled by JS on pointerenter/leave
+   (see #wireNodeInteraction in research.js), NOT applied unconditionally
+   to every node — will-change forces a persistent GPU-backed compositing
+   layer for whatever it's applied to, and doing that for every node in a
+   large tree at once (rather than just the one the cursor is currently
+   over) is real, wasted GPU memory pressure on lower-spec/integrated-
+   GPU hardware, for a benefit that only ever matters for the single node
+   being hovered at any given moment. Targets ::before and the icon
+   specifically, not .research-node itself, because THOSE are what
+   actually carry both the hover transform:scale() AND a clip-path/mask
+   — mixing those two on the SAME element is what caused the original
+   blur-sharpen-blur flicker bug (a GPU layer promotion/demotion hitch
+   right at hover start/end), not .research-node's own box, which
+   doesn't transform on hover at all. */
+.kingdom-app .research-node--will-scale::before,
+.kingdom-app .research-node--will-scale .research-node__icon {
+  will-change: transform;
+}
+
+/* Tiers — "small" through "gargantuan" scale a node's rendered SIZE
+   (handled per-node in research.js via #sizeForNode, not here — this
+   file never sees pixel dimensions), plus its VISUAL WEIGHT: border
+   thickness and glow both scale with --rt-tier-*-mult below, and large/
+   huge/gargantuan additionally get an outer ring (::after) a plain
+   medium/small node doesn't, the same way PoE reserves a heavier frame
+   and extra ring(s) for notable/keystone nodes rather than just making
+   them bigger. Medium is an exact 1x/1x no-op specifically so every
+   node saved before tiers existed (which all render as medium — see
+   #sizeForNode's fallback) looks pixel-identical to before this
+   feature landed. */
+.kingdom-app .research-node--tier-small { --rt-tier-border-mult: 0.75; --rt-tier-glow-mult: 0.6; }
+.kingdom-app .research-node--tier-medium { --rt-tier-border-mult: 1; --rt-tier-glow-mult: 1; }
+.kingdom-app .research-node--tier-large { --rt-tier-border-mult: 1.3; --rt-tier-glow-mult: 1.3; }
+.kingdom-app .research-node--tier-huge { --rt-tier-border-mult: 1.6; --rt-tier-glow-mult: 1.6; }
+.kingdom-app .research-node--tier-gargantuan { --rt-tier-border-mult: 2; --rt-tier-glow-mult: 2; }
+
+/* Outer ring(s) for the "important" tiers — sits behind the node's own
+   ::before (z-index -1 inside .research-node's own stacking context,
+   established by its position+z-index above) so it never covers the
+   icon/frame, just frames it from further out. border-radius: inherit
+   picks up whatever shape-specific radius .research-node--shape-X sets
+   on the outer element (see the Shape variants below), so this works
+   the same way across every shape without per-shape duplication. */
+.kingdom-app .research-node--tier-large::after,
+.kingdom-app .research-node--tier-huge::after,
+.kingdom-app .research-node--tier-gargantuan::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  z-index: -1;
+  border-radius: inherit;
+  border: 1px solid var(--rt-node-border);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.kingdom-app .research-node--tier-huge::after {
+  inset: -8px;
+  border-width: 2px;
+  opacity: 0.6;
+}
+.kingdom-app .research-node--tier-gargantuan::after {
+  inset: -10px;
+  border-width: 2px;
+  opacity: 0.75;
+  /* A second, fainter ring further out still via box-shadow (cheap way
+     to fake more rings without more pseudo-elements) — gargantuan is
+     meant to read as unmistakably a tier above huge, not just "huge but
+     slightly bigger." */
+  box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.4), 0 0 0 7px var(--rt-node-border);
+}
+.kingdom-app .research-node--tier-huge .research-node__name,
+.kingdom-app .research-node--tier-gargantuan .research-node__name {
+  font-size: 17px;
+}
+
+/* The orb face — border/background/glow all live here, not on
+   .research-node itself, so that clip-path (needed for the hex/diamond/
+   seal shapes below) has one consistent element to apply to. Unlike
+   box-shadow, filter: drop-shadow() is NOT clipped away by a clip-path
+   on the same element — it's computed from the element's already-
+   clipped rendered shape, so the glow correctly follows the exact
+   silhouette for every shape (hex glows hex-shaped, diamond glows
+   diamond-shaped, etc.) instead of the previous approximate rounded
+   glow that didn't match a sharp-edged shape's actual outline. */
+.kingdom-app .research-node::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 50%;
+  border-style: solid;
+  border-width: calc(var(--rt-node-border-width) * var(--rt-tier-border-mult, 1));
+  border-color: var(--rt-node-border);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.3), transparent 40%),
+    radial-gradient(circle at 50% 55%, var(--rt-node-bg), rgba(4, 4, 6, 0.96));
+  filter: drop-shadow(0 0 calc(3px * var(--rt-glow, 1) * var(--rt-tier-glow-mult, 1)) rgba(0, 0, 0, 0.7));
+  transition: border-color 0.2s ease, background 0.2s ease, filter 0.2s ease;
+}
+
+/* Optional per-node icon. Fills the node's full box (inset to the
+   border's inner edge, not a small inset circle) and both clips AND
+   fades to match the node's own frame shape — clip-path gives a hard
+   boundary so the image never spills past the hex/diamond points, and
+   mask-image layers a soft radial fade on top of that so the art
+   dissolves into the node's own background near the edges instead of
+   ending in a hard-edged crop that reads as pasted-on. Each shape gets
+   its own clip-path (reusing the exact polygons ::before uses, so the
+   cutoff genuinely matches the visible frame) and a mask sized to that
+   shape's own proportions — a circle's fade doesn't reach a diamond's
+   corners, so a shared one-size mask would leave the points looking
+   more cut-off than the flat edges. z-index sits above the frame
+   (::before, z-index 0) and below the caption/link-handle. */
+.kingdom-app .research-node__icon {
+  position: absolute;
+  z-index: 1;
+  /* top/left + explicit width/height via calc, NOT `inset` on all four
+     sides plus width/height together — those two would over-constrain
+     the box (browsers resolve that by dropping one side, which is what
+     caused a border-width-sized sliver of overflow/misplacement). This
+     form is unambiguous. Explicit width/height (not just position) is
+     what actually fixes the reported bug: <img> is a REPLACED element,
+     and without an explicit size some browsers fall back to the source
+     image's own intrinsic pixel dimensions instead of stretching to
+     fill the box. A square source image happened to look plausible
+     either way; a landscape or portrait one rendered at its native
+     aspect ratio and spilled far outside the node in whichever
+     direction it was long — exactly the reported bug. This forces the
+     box itself to always be the node's own square regardless of the
+     source image's shape; object-fit: cover then crops the image
+     CONTENT to fill that fixed square without ever resizing the box. */
+  top: calc(var(--rt-node-border-width) * var(--rt-tier-border-mult, 1));
+  left: calc(var(--rt-node-border-width) * var(--rt-tier-border-mult, 1));
+  width: calc(100% - (var(--rt-node-border-width) * var(--rt-tier-border-mult, 1) * 2));
+  height: calc(100% - (var(--rt-node-border-width) * var(--rt-tier-border-mult, 1) * 2));
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  transition: transform 0.15s ease;
+  clip-path: circle(50% at 50% 50%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 30%, transparent 82%);
+  mask-image: radial-gradient(circle at 50% 50%, black 30%, transparent 82%);
+}
+.kingdom-app .research-node--locked .research-node__icon {
+  filter: grayscale(0.7) brightness(0.5);
+}
+
+/* Shape variants. Circle/scroll are exact via border-radius alone;
+   hex/diamond/seal need clip-path for the sharp shape, applied only to
+   ::before (see the drop-shadow comment above for why the glow still
+   matches exactly even though .research-node itself stays a plain box). */
+.kingdom-app .research-node--shape-hex {
+  /* Approximate rounding on the OUTER element too — purely so the
+     edit-mode "selected" outline (which lives here, not on ::before)
+     roughly follows the hex shape instead of tracing a plain square
+     around it. This is safe now in a way it wasn't before: the outer
+     element no longer carries the glow (that moved to ::before's
+     filter: drop-shadow, unaffected by clip-path), so giving it a
+     border-radius has no risk of reintroducing the old shape-mismatch
+     bug — it only affects this outline. */
+  border-radius: 24%;
+}
+.kingdom-app .research-node--shape-hex::before {
+  border-radius: 10%;
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
+}
+.kingdom-app .research-node--shape-hex .research-node__icon {
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
+  -webkit-mask-image: radial-gradient(ellipse 65% 65% at 50% 50%, black 25%, transparent 85%);
+  mask-image: radial-gradient(ellipse 65% 65% at 50% 50%, black 25%, transparent 85%);
+}
+.kingdom-app .research-node--shape-diamond {
+  border-radius: 24%;
+}
+.kingdom-app .research-node--shape-diamond::before {
+  border-radius: 10%;
+  clip-path: polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%);
+}
+.kingdom-app .research-node--shape-diamond .research-node__icon {
+  clip-path: polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%);
+  /* Diamond's points reach all the way to the box's flat edges (unlike
+     hex's), so this fade starts later and reaches further, or the tips
+     would look far more cut-off than the sides. */
+  -webkit-mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, black 18%, transparent 94%);
+  mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, black 18%, transparent 94%);
+}
+.kingdom-app .research-node--shape-seal {
+  border-radius: 46% 54% 52% 48% / 54% 48% 52% 46%;
+}
+.kingdom-app .research-node--shape-seal::before {
+  border-radius: 46% 54% 52% 48% / 54% 48% 52% 46%;
+  clip-path: polygon(
+    50.0% 0.0%, 61.1% 8.5%, 75.0% 6.7%, 80.4% 19.6%, 93.3% 25.0%, 91.5% 38.9%,
+    100.0% 50.0%, 91.5% 61.1%, 93.3% 75.0%, 80.4% 80.4%, 75.0% 93.3%, 61.1% 91.5%,
+    50.0% 100.0%, 38.9% 91.5%, 25.0% 93.3%, 19.6% 80.4%, 6.7% 75.0%, 8.5% 61.1%,
+    0.0% 50.0%, 8.5% 38.9%, 6.7% 25.0%, 19.6% 19.6%, 25.0% 6.7%, 38.9% 8.5%
+  );
+}
+.kingdom-app .research-node--shape-seal .research-node__icon {
+  clip-path: polygon(
+    50.0% 0.0%, 61.1% 8.5%, 75.0% 6.7%, 80.4% 19.6%, 93.3% 25.0%, 91.5% 38.9%,
+    100.0% 50.0%, 91.5% 61.1%, 93.3% 75.0%, 80.4% 80.4%, 75.0% 93.3%, 61.1% 91.5%,
+    50.0% 100.0%, 38.9% 91.5%, 25.0% 93.3%, 19.6% 80.4%, 6.7% 75.0%, 8.5% 61.1%,
+    0.0% 50.0%, 8.5% 38.9%, 6.7% 25.0%, 19.6% 19.6%, 25.0% 6.7%, 38.9% 8.5%
+  );
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 33%, transparent 84%);
+  mask-image: radial-gradient(circle at 50% 50%, black 33%, transparent 84%);
+}
+.kingdom-app .research-node--shape-scroll {
+  border-radius: 20%;
+}
+.kingdom-app .research-node--shape-scroll::before {
+  border-radius: 20%;
+  border-color: rgba(90, 62, 32, 0.7);
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 15%, rgba(255, 250, 235, 0.5), transparent 70%),
+    linear-gradient(to bottom,
+      rgba(76, 52, 27, 0.5) 0%, rgba(76, 52, 27, 0.5) 12%, transparent 13%,
+      transparent 87%, rgba(76, 52, 27, 0.5) 88%, rgba(76, 52, 27, 0.5) 100%),
+    linear-gradient(135deg, #ece0bb 0%, #ddc794 45%, #c9ac78 100%);
+}
+.kingdom-app .research-node--shape-scroll .research-node__icon {
+  clip-path: inset(0 round 20%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 75% at 50% 50%, black 35%, transparent 85%);
+  mask-image: radial-gradient(ellipse 60% 75% at 50% 50%, black 35%, transparent 85%);
+}
+
+/* Hover scale lives on ::before (the frame) and the icon, NOT on
+   .research-node itself — a real fix, not a style tweak. Scaling the
+   whole node on :hover also visually moved the link handle (a real
+   child, not part of the frame) outward the instant hover triggered,
+   turning it into a moving target exactly when the cursor was trying
+   to reach it — on top of the earlier fix for it sitting partly
+   outside the hoverable box, this was the OTHER cause of "the + fades
+   as I move toward it." Scoping the scale to the decorative layers
+   only means .research-node's own box — and everything positioned
+   directly against it, like the handle — never moves on hover at all. */
+.kingdom-app .research-node:hover {
+  z-index: 3;
+}
+.kingdom-app .research-node:hover .research-node__icon {
+  transform: scale(1.12);
+}
+.kingdom-app .research-node:hover::before {
+  transform: scale(1.12);
+  border-color: var(--rt-line-active);
+  filter: drop-shadow(0 0 calc(8px * var(--rt-glow, 1) * var(--rt-tier-glow-mult, 1)) var(--rt-accent));
+}
+
+/* Available — prerequisites met, not yet spent. Static bright ring, no
+   animation (see the performance note at the top) — the same way PoE
+   marks a purchasable-but-unpurchased node with a plain highlighted
+   outline rather than a pulsing wash of color. */
+.kingdom-app .research-node--available::before {
+  border-color: var(--rt-accent);
+  filter: drop-shadow(0 0 calc(3px * var(--rt-glow, 1) * var(--rt-tier-glow-mult, 1)) var(--rt-accent));
+}
+
+/* Unlocked — a real, colored, static glow (no breathing animation). */
+.kingdom-app .research-node:not(.research-node--locked)::before {
+  border-color: var(--rt-accent);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.4), transparent 40%),
+    radial-gradient(circle at 50% 55%, var(--rt-accent), rgba(4, 4, 6, 0.5));
+  filter: drop-shadow(0 0 calc(5px * var(--rt-glow, 1) * var(--rt-tier-glow-mult, 1)) var(--rt-accent));
+}
+
+/* Locked (and not yet available) — dim, desaturated, no glow at all. */
+.kingdom-app .research-node--locked::before {
+  border-color: rgba(120, 120, 130, 0.4) !important;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.05), transparent 40%),
+    radial-gradient(circle at 50% 55%, #1a1a1e, #08080a) !important;
+  filter: none !important;
+}
+.kingdom-app .research-node--locked:hover {
+  transform: scale(1.08);
+}
+
+/* Unlock flash — the one animation that's genuinely worth keeping
+   despite the performance note above: it's one node, once, for well
+   under a second. Toned down from an earlier pass that was reported as
+   too bright (peak brightness 1.8 → 1.3, scale 1.4 → 1.25). */
+.kingdom-app .research-node--just-unlocked {
+  animation: rk-node-unlock-burst 0.6s cubic-bezier(0.2, 0.8, 0.4, 1.2) both !important;
+}
+@keyframes rk-node-unlock-burst {
+  0% { transform: scale(1); filter: brightness(1); }
+  40% { transform: scale(1.25); filter: brightness(1.3); }
+  70% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
+
+.kingdom-app .research-node--editable { cursor: grab; }
+.kingdom-app .research-node--editable:active { cursor: grabbing; }
+.kingdom-app .research-node--selected {
+  outline: 2px solid var(--rt-accent);
+  outline-offset: 3px;
+}
+/* ---- Caption — name/cost/status/unlock, anchored below the orb ---- */
+.kingdom-app .research-node__caption {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: max-content;
+  max-width: 150px;
+  text-align: center;
+  pointer-events: none;
+}
+.kingdom-app .research-node__caption > * {
+  pointer-events: auto;
+}
+.kingdom-app .research-node__name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.25;
+  color: var(--rt-node-text);
+  /* Boosted for visibility over a background that varies a lot node to
+     node (starfield, parchment, a GM's own colored Region overlays,
+     the art in a node's own icon peeking out below it) — a single soft
+     shadow wasn't reliably enough contrast everywhere. Layering a tight
+     near-solid shadow with a wider soft one behind it acts like a thin
+     outline, so the text stays legible regardless of what's behind it,
+     not just against the default dark void. */
+  text-shadow:
+    0 1px 1px rgba(0, 0, 0, 1),
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 0 8px rgba(0, 0, 0, 0.8);
+}
+.kingdom-app .research-node__cost {
+  font-size: 11px;
+  color: rgba(232, 224, 208, 0.92);
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 1), 0 0 5px rgba(0, 0, 0, 0.85);
+}
+.kingdom-app .research-node__status {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 1), 0 0 5px rgba(0, 0, 0, 0.85);
+}
+.kingdom-app .research-node__status--unlocked {
+  color: #9fe8ae;
+}
+.kingdom-app .research-node__status--locked {
+  color: #b5b2b9;
+}
+.kingdom-app .research-node__unlock {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--rt-line-active);
+  background: rgba(20, 18, 14, 0.85);
+  color: var(--color-gold-light, #E8B651);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.kingdom-app .research-node__unlock:hover:not(:disabled) {
+  background: rgba(156, 124, 56, 0.5);
+  box-shadow: 0 0 calc(8px * var(--rt-glow, 1)) var(--rt-accent);
+}
+.kingdom-app .research-node__unlock:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Link handle — top-right corner now (bottom would collide with the
+   caption below the node). Hidden until the node's hovered so an
+   edit-mode tree with many small nodes isn't covered in corner icons. */
+.kingdom-app .research-node__link-handle {
+  position: absolute;
+  /* Positive inset, not negative — .research-node has no clip-path
+     itself, so its hoverable hit-box is its full square; the handle
+     used to sit partly outside that square at a negative offset,
+     which was one real cause of "the + fades as I move toward it."
+     Kept fully inside the square here, rather than dead-center, so a
+     click there doesn't have to disambiguate between "select/move
+     this node" and "start a link." */
+  right: 3px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(20, 17, 13, 0.92);
+  border: 1px solid var(--rt-line-active);
+  color: var(--color-gold-light, #E8B651);
+  cursor: crosshair;
+  z-index: 4;
+  opacity: 0;
+  /* Always auto, never gated behind :hover — that was the OTHER real
+     cause, on top of the positioning one above: :hover on the PARENT
+     used to also drive a transform: scale() on the whole node (see the
+     comment on .research-node:hover), which visually moved this
+     handle's own rendered position the instant hover triggered, right
+     as the cursor was closing in on it — a moving target, even once
+     it was no longer geometrically outside the hoverable box. That
+     scale is now scoped to the frame/icon only and never moves this
+     element, but pointer-events staying permanently on removes any
+     remaining dependency on hover timing entirely: opacity is now
+     purely cosmetic (still fades in/out for a decluttered look), never
+     functional. A few pixels of the node's corner being clickable even
+     when visually faded is a reasonable trade for the handle actually
+     working. */
+  pointer-events: auto;
+  transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+.kingdom-app .research-node:hover .research-node__link-handle,
+.kingdom-app .research-node__link-handle:hover {
+  opacity: 1;
+}
+.kingdom-app .research-node__link-handle:hover {
+  transform: scale(1.2);
+  background: rgba(156, 124, 56, 0.5);
+}
+
+/* Particle canvas overlay (injected by JS on unlock) */
+.kingdom-app .research-particle-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+
+/* ---- Side editor panel ---- */
+.kingdom-app .research-editor {
+  flex: none;
+  width: 300px;
+  padding: 14px;
+  overflow-y: auto;
+  border-left: 1px solid rgba(156, 124, 56, 0.3);
+  background: rgba(14, 12, 8, 0.92);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kingdom-app .research-editor h3 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-gold-light, #E8B651);
+}
+.kingdom-app .research-editor__divider {
+  border: none;
+  border-top: 1px solid rgba(156, 124, 56, 0.25);
+  margin: 4px 0;
+}
+.kingdom-app .research-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: clamp(12px, 1.2cqh, 15px);
+  color: rgba(224, 208, 170, 0.75);
+}
+.kingdom-app .research-editor input[type="text"],
+.kingdom-app .research-editor input[type="number"],
+.kingdom-app .research-editor select,
+.kingdom-app .research-editor textarea {
+  font-family: var(--font-body);
+  font-size: clamp(13px, 1.3cqh, 16px);
+  padding: 5px 7px;
+  border-radius: 3px;
+  border: 1px solid rgba(156, 124, 56, 0.35);
+  background: rgba(156, 124, 56, 0.08);
+  color: #ecdcb0;
+  resize: both;
+}
+.kingdom-app .research-editor input[type="color"] {
+  width: 100%;
+  height: 32px;
+  padding: 2px;
+  border-radius: 3px;
+  border: 1px solid rgba(156, 124, 56, 0.35);
+  background: transparent;
+}
+.kingdom-app .research-editor__prereqs {
+  border: 1px solid rgba(156, 124, 56, 0.25);
+  border-radius: 4px;
+  padding: 8px;
+  margin: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.kingdom-app .research-editor__search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  padding: 5px 7px;
+  border-radius: 3px;
+  border: 1px solid rgba(156, 124, 56, 0.35);
+  background: rgba(156, 124, 56, 0.08);
+  color: #ecdcb0;
+  font-family: var(--font-body);
+  font-size: clamp(13px, 1.3cqh, 16px);
+}
+.kingdom-app .research-editor__prereqs legend {
+  font-size: clamp(12px, 1.2cqh, 15px);
+  color: rgba(224, 208, 170, 0.6);
+  padding: 0 4px;
+}
+.kingdom-app .research-editor__prereqs label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+  font-size: clamp(12px, 1.2cqh, 15px);
+  margin-bottom: 4px;
+}
+
+/* ---- Regions ---- */
+.kingdom-app .research-region {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 6px 8px;
+  pointer-events: none;
+  transition: filter 0.2s ease;
+}
+.kingdom-app .research-region--editable {
+  pointer-events: auto;
+  cursor: move;
+}
+.kingdom-app .research-region__title {
+  position: absolute;
+  top: -1px;
+  left: 8px;
+  transform: translateY(-50%);
+  padding: 1px 10px;
+  background: #0e0c08;
+  border-radius: 3px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+.kingdom-app .research-region--editable .research-region__title { cursor: pointer; }
+.kingdom-app .research-region--editable .research-region__title:hover { text-decoration: underline; }
+.kingdom-app .research-region__handle {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: rgba(156, 124, 56, 0.35);
+  border: 1px solid var(--color-gold-light, #E8B651);
+  cursor: nwse-resize;
+  pointer-events: auto;
+}
+.kingdom-app .research-region__handle:hover {
+  background: rgba(232, 182, 81, 0.5);
+}
+
+
+/* ==========================================================================
+   Kingdom tooltip toggle — floating button, injected directly rather
+   than via Foundry's scene-controls API (see hexes.js for why). Sits
+   just right of Foundry's own left-hand tool column.
+   ========================================================================== */
+.pf2e-rk-tooltip-toggle {
+  position: fixed;
+  top: 10px;
+  left: 60px;
+  z-index: 60;
+  border: 1px solid rgba(232, 182, 81, 0.5);
+  background: rgba(20, 21, 18, 0.9);
+  color: rgba(244, 233, 192, 0.75);
+  font-family: var(--font-body, sans-serif);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.pf2e-rk-tooltip-toggle:hover {
+  background: rgba(40, 41, 36, 0.95);
+}
+.pf2e-rk-tooltip-toggle.is-active {
+  border-color: var(--color-green-accent, #40FF57);
+  color: var(--color-green-accent, #40FF57);
+}
